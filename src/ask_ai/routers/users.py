@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from ask_ai.assistants import AssistantsDep
 from ask_ai.database import SessionDep
 from ask_ai.dependencies import PaginationDep, UserDep
 from ask_ai.models import (
@@ -31,6 +32,14 @@ def _commit_user(session: Session, user: User) -> User:
     return user
 
 
+def _reject_reserved_username(username: str | None, assistants: AssistantsDep):
+    # Assistant names belong to the bot accounts that author their replies.
+    if username in assistants:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Username is reserved"
+        )
+
+
 @router.get("", response_model=list[UserPublic])
 def list_users(session: SessionDep, pagination: PaginationDep):
     return session.exec(
@@ -39,7 +48,8 @@ def list_users(session: SessionDep, pagination: PaginationDep):
 
 
 @router.post("", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
-def create_user(user_in: UserCreate, session: SessionDep):
+def create_user(user_in: UserCreate, session: SessionDep, assistants: AssistantsDep):
+    _reject_reserved_username(user_in.username, assistants)
     return _commit_user(session, User.model_validate(user_in))
 
 
@@ -49,7 +59,10 @@ def read_user(user: UserDep):
 
 
 @router.patch("/{user_id}", response_model=UserPublic)
-def update_user(user: UserDep, user_in: UserUpdate, session: SessionDep):
+def update_user(
+    user: UserDep, user_in: UserUpdate, session: SessionDep, assistants: AssistantsDep
+):
+    _reject_reserved_username(user_in.username, assistants)
     user.sqlmodel_update(user_in.model_dump(exclude_unset=True))
     return _commit_user(session, user)
 

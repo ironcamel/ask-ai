@@ -9,9 +9,11 @@ def create_user(client: TestClient, username: str = "alice") -> dict:
     return response.json()
 
 
-def create_post(client: TestClient, user_id: int, title: str = "Hello") -> dict:
+def create_post(
+    client: TestClient, user_id: int, title: str = "Hello", body: str = "First post"
+) -> dict:
     response = client.post(
-        "/posts", json={"title": title, "body": "First post", "user_id": user_id}
+        "/posts", json={"title": title, "body": body, "user_id": user_id}
     )
     assert response.status_code == 201, response.text
     return response.json()

@@ -25,7 +25,14 @@ def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
 
 
-def get_session() -> Iterator[Session]:
+def get_engine() -> Engine:
+    return engine
+
+
+EngineDep = Annotated[Engine, Depends(get_engine)]
+
+
+def get_session(engine: EngineDep) -> Iterator[Session]:
     with Session(engine) as session:
         yield session
 
