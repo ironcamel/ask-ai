@@ -7,7 +7,9 @@ authors = [
     { name = "Naveed Massjouni", email = "naveed@vt.edu" }
 ]
 requires-python = ">=3.15"
-dependencies = []
+dependencies = [
+    "fastapi[standard]>=0.163.2",
+]
 
 [project.scripts]
 ask-ai = "ask_ai:main"
