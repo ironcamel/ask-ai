@@ -56,7 +56,7 @@ class Post(PostBase, table=True):
 
 
 class PostCreate(PostBase):
-    pass
+    user_id: int = Field(ge=1)
 
 
 class PostUpdate(SQLModel):
@@ -88,6 +88,7 @@ class Comment(CommentBase, table=True):
 
 
 class CommentCreate(CommentBase):
+    post_id: int = Field(ge=1)
     user_id: int = Field(ge=1)
 
 

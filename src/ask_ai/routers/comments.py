@@ -2,8 +2,15 @@ from fastapi import APIRouter, status
 from sqlmodel import select
 
 from ask_ai.database import SessionDep
-from ask_ai.dependencies import CommentDep, PaginationDep
-from ask_ai.models import Comment, CommentPublic, CommentUpdate
+from ask_ai.dependencies import CommentDep, PaginationDep, ensure_exists
+from ask_ai.models import (
+    Comment,
+    CommentCreate,
+    CommentPublic,
+    CommentUpdate,
+    Post,
+    User,
+)
 
 router = APIRouter(prefix="/comments", tags=["comments"])
 
@@ -16,6 +23,17 @@ def list_comments(session: SessionDep, pagination: PaginationDep):
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).all()
+
+
+@router.post("", response_model=CommentPublic, status_code=status.HTTP_201_CREATED)
+def create_comment(comment_in: CommentCreate, session: SessionDep):
+    ensure_exists(session, Post, comment_in.post_id)
+    ensure_exists(session, User, comment_in.user_id)
+    comment = Comment.model_validate(comment_in)
+    session.add(comment)
+    session.commit()
+    session.refresh(comment)
+    return comment
 
 
 @router.get("/{comment_id}", response_model=CommentPublic)

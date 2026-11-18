@@ -11,7 +11,7 @@ def create_user(client: TestClient, username: str = "alice") -> dict:
 
 def create_post(client: TestClient, user_id: int, title: str = "Hello") -> dict:
     response = client.post(
-        f"/users/{user_id}/posts", json={"title": title, "body": "First post"}
+        "/posts", json={"title": title, "body": "First post", "user_id": user_id}
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -21,7 +21,7 @@ def create_comment(
     client: TestClient, post_id: int, user_id: int, body: str = "Nice"
 ) -> dict:
     response = client.post(
-        f"/posts/{post_id}/comments", json={"body": body, "user_id": user_id}
+        "/comments", json={"body": body, "post_id": post_id, "user_id": user_id}
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -73,11 +73,6 @@ def test_user_has_many_posts(client: TestClient):
     assert client.get("/posts").json() == [p1, p2, p3]
     assert p1["user_id"] == alice["id"]
 
-    assert (
-        client.post("/users/999/posts", json={"title": "x", "body": "y"}).status_code
-        == 404
-    )
-
 
 def test_post_crud(client: TestClient):
     user = create_user(client)
@@ -104,13 +99,6 @@ def test_post_has_many_comments(client: TestClient):
     assert client.get(f"/posts/{post['id']}/comments").json() == [c1, c2]
     assert client.get(f"/posts/{other['id']}/comments").json() == [c3]
     assert client.get("/comments").json() == [c1, c2, c3]
-
-    assert (
-        client.post(
-            "/posts/999/comments", json={"body": "x", "user_id": user["id"]}
-        ).status_code
-        == 404
-    )
 
 
 def test_comment_crud(client: TestClient):
@@ -162,17 +150,35 @@ def test_comment_records_author(client: TestClient):
     assert response.json()["user_id"] == bob["id"]
 
 
-def test_comment_requires_existing_author(client: TestClient):
+def test_post_requires_existing_author(client: TestClient):
+    response = client.post("/posts", json={"title": "x", "body": "y"})
+    assert response.status_code == 422
+
+    response = client.post("/posts", json={"title": "x", "body": "y", "user_id": 999})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "User not found"
+
+
+def test_comment_requires_existing_post_and_author(client: TestClient):
     user = create_user(client)
     post = create_post(client, user["id"])
 
-    response = client.post(f"/posts/{post['id']}/comments", json={"body": "x"})
-    assert response.status_code == 422
+    for missing in ("post_id", "user_id"):
+        body = {"body": "x", "post_id": post["id"], "user_id": user["id"]}
+        del body[missing]
+        assert client.post("/comments", json=body).status_code == 422
 
     response = client.post(
-        f"/posts/{post['id']}/comments", json={"body": "x", "user_id": 999}
+        "/comments", json={"body": "x", "post_id": 999, "user_id": user["id"]}
     )
     assert response.status_code == 422
+    assert response.json()["detail"] == "Post not found"
+
+    response = client.post(
+        "/comments", json={"body": "x", "post_id": post["id"], "user_id": 999}
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "User not found"
 
 
 def test_deleting_commenter_removes_their_comments(client: TestClient):

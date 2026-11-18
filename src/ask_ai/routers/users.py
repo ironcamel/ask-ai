@@ -8,7 +8,6 @@ from ask_ai.models import (
     Comment,
     CommentPublic,
     Post,
-    PostCreate,
     PostPublic,
     User,
     UserCreate,
@@ -70,20 +69,6 @@ def list_user_posts(user: UserDep, session: SessionDep, pagination: PaginationDe
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).all()
-
-
-@router.post(
-    "/{user_id}/posts",
-    response_model=PostPublic,
-    status_code=status.HTTP_201_CREATED,
-    tags=["posts"],
-)
-def create_user_post(user: UserDep, post_in: PostCreate, session: SessionDep):
-    post = Post.model_validate(post_in, update={"user_id": user.id})
-    session.add(post)
-    session.commit()
-    session.refresh(post)
-    return post
 
 
 @router.get(

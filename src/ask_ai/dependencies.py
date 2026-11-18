@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
+from sqlmodel import Session, SQLModel
 
 from ask_ai.database import SessionDep
 from ask_ai.models import Comment, Post, User
@@ -20,6 +21,14 @@ def get_pagination(
 
 
 PaginationDep = Annotated[Pagination, Depends(get_pagination)]
+
+
+def ensure_exists(session: Session, model: type[SQLModel], id: int) -> None:
+    """Reject a request body that references a row that doesn't exist."""
+    if session.get(model, id) is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"{model.__name__} not found"
+        )
 
 
 def get_user(user_id: Annotated[int, Path(ge=1)], session: SessionDep) -> User:

@@ -1,13 +1,13 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, status
 from sqlmodel import select
 
 from ask_ai.database import SessionDep
-from ask_ai.dependencies import PaginationDep, PostDep
+from ask_ai.dependencies import PaginationDep, PostDep, ensure_exists
 from ask_ai.models import (
     Comment,
-    CommentCreate,
     CommentPublic,
     Post,
+    PostCreate,
     PostPublic,
     PostUpdate,
     User,
@@ -21,6 +21,16 @@ def list_posts(session: SessionDep, pagination: PaginationDep):
     return session.exec(
         select(Post).order_by(Post.id).offset(pagination.offset).limit(pagination.limit)
     ).all()
+
+
+@router.post("", response_model=PostPublic, status_code=status.HTTP_201_CREATED)
+def create_post(post_in: PostCreate, session: SessionDep):
+    ensure_exists(session, User, post_in.user_id)
+    post = Post.model_validate(post_in)
+    session.add(post)
+    session.commit()
+    session.refresh(post)
+    return post
 
 
 @router.get("/{post_id}", response_model=PostPublic)
@@ -54,19 +64,3 @@ def list_post_comments(post: PostDep, session: SessionDep, pagination: Paginatio
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).all()
-
-
-@router.post(
-    "/{post_id}/comments",
-    response_model=CommentPublic,
-    status_code=status.HTTP_201_CREATED,
-    tags=["comments"],
-)
-def create_post_comment(post: PostDep, comment_in: CommentCreate, session: SessionDep):
-    if session.get(User, comment_in.user_id) is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "User not found")
-    comment = Comment.model_validate(comment_in, update={"post_id": post.id})
-    session.add(comment)
-    session.commit()
-    session.refresh(comment)
-    return comment
