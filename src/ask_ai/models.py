@@ -42,7 +42,6 @@ class UserPublic(UserBase):
 
 
 class PostBase(SQLModel):
-    title: str = Field(min_length=1, max_length=200)
     body: str
 
 
@@ -60,7 +59,6 @@ class PostCreate(PostBase):
 
 
 class PostUpdate(SQLModel):
-    title: str | None = Field(default=None, min_length=1, max_length=200)
     body: str | None = None
 
 

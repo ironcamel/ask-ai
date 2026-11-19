@@ -9,12 +9,8 @@ def create_user(client: TestClient, username: str = "alice") -> dict:
     return response.json()
 
 
-def create_post(
-    client: TestClient, user_id: int, title: str = "Hello", body: str = "First post"
-) -> dict:
-    response = client.post(
-        "/posts", json={"title": title, "body": body, "user_id": user_id}
-    )
+def create_post(client: TestClient, user_id: int, body: str = "First post") -> dict:
+    response = client.post("/posts", json={"body": body, "user_id": user_id})
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -82,9 +78,9 @@ def test_post_crud(client: TestClient):
 
     assert client.get(f"/posts/{post['id']}").json() == post
 
-    response = client.patch(f"/posts/{post['id']}", json={"title": "Updated"})
-    assert response.json()["title"] == "Updated"
-    assert response.json()["body"] == "First post"
+    response = client.patch(f"/posts/{post['id']}", json={"body": "Updated"})
+    assert response.json()["body"] == "Updated"
+    assert response.json()["user_id"] == user["id"]
 
     assert client.delete(f"/posts/{post['id']}").status_code == 204
     assert client.get(f"/posts/{post['id']}").status_code == 404
@@ -153,10 +149,10 @@ def test_comment_records_author(client: TestClient):
 
 
 def test_post_requires_existing_author(client: TestClient):
-    response = client.post("/posts", json={"title": "x", "body": "y"})
+    response = client.post("/posts", json={"body": "y"})
     assert response.status_code == 422
 
-    response = client.post("/posts", json={"title": "x", "body": "y", "user_id": 999})
+    response = client.post("/posts", json={"body": "y", "user_id": 999})
     assert response.status_code == 422
     assert response.json()["detail"] == "User not found"
 
