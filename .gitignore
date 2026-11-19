@@ -14,3 +14,6 @@ wheels/
 
 # Local config with secrets (copy .env.example to .env)
 .env
+
+# Personal notes
+notes.txt
