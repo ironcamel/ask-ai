@@ -29,14 +29,19 @@ AssistantsDep = Annotated[dict[str, Assistant], Depends(get_assistants)]
 
 
 def parse_mention(body: str, names: list[str]) -> tuple[str, str] | None:
-    """Return (assistant name, query) if the body starts with "@<name> <query>"."""
+    """Return (assistant name, query) if the body starts with "@<name> <query>".
+
+    A comma may follow the name, as in "@<name>, <query>".
+    """
     for name in names:
         prefix = f"@{name}"
         if not body.startswith(prefix):
             continue
         rest = body.removeprefix(prefix)
+        if rest.startswith(","):
+            rest = rest.removeprefix(",")
         # "@claudette" is not a mention of "@claude".
-        if rest and not rest[0].isspace():
+        elif rest and not rest[0].isspace():
             continue
         query = rest.strip()
         return (name, query) if query else None

@@ -13,6 +13,10 @@ NAMES = ["claude", "gemini"]
     [
         ("@claude what is 2+2?", ("claude", "what is 2+2?")),
         ("@gemini\n  tell me a joke  ", ("gemini", "tell me a joke")),
+        ("@claude, what is 2+2?", ("claude", "what is 2+2?")),
+        ("@gemini,tell me a joke", ("gemini", "tell me a joke")),
+        ("@claude,", None),
+        ("@claude,  ", None),
         ("@claude", None),
         ("@claude   ", None),
         ("@claudette hi", None),
