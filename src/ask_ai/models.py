@@ -19,18 +19,21 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=_utcnow)
+    # None for accounts that can't log in, such as the assistant bots.
+    hashed_password: str | None = None
 
     posts: list[Post] = Relationship(back_populates="author", cascade_delete=True)
     comments: list[Comment] = Relationship(back_populates="author", cascade_delete=True)
 
 
 class UserCreate(UserBase):
-    pass
+    password: str = Field(min_length=8, max_length=128)
 
 
 class UserUpdate(SQLModel):
     username: str | None = Field(default=None, min_length=1, max_length=50)
     email: EmailStr | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class UserPublic(UserBase):
@@ -55,7 +58,7 @@ class Post(PostBase, table=True):
 
 
 class PostCreate(PostBase):
-    user_id: int = Field(ge=1)
+    pass
 
 
 class PostUpdate(SQLModel):
@@ -87,7 +90,6 @@ class Comment(CommentBase, table=True):
 
 class CommentCreate(CommentBase):
     post_id: int = Field(ge=1)
-    user_id: int = Field(ge=1)
 
 
 class CommentUpdate(SQLModel):

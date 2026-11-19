@@ -3,7 +3,7 @@ from sqlmodel import select
 
 from ask_ai.assistants import AssistantsDep, parse_mention, reply_to_post
 from ask_ai.database import EngineDep, SessionDep
-from ask_ai.dependencies import PaginationDep, PostDep, ensure_exists
+from ask_ai.dependencies import OwnPostDep, PaginationDep, PostDep
 from ask_ai.models import (
     Comment,
     CommentPublic,
@@ -11,8 +11,8 @@ from ask_ai.models import (
     PostCreate,
     PostPublic,
     PostUpdate,
-    User,
 )
+from ask_ai.security import CurrentUserDep
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -27,13 +27,13 @@ def list_posts(session: SessionDep, pagination: PaginationDep):
 @router.post("", response_model=PostPublic, status_code=status.HTTP_201_CREATED)
 def create_post(
     post_in: PostCreate,
+    current_user: CurrentUserDep,
     session: SessionDep,
     engine: EngineDep,
     assistants: AssistantsDep,
     background_tasks: BackgroundTasks,
 ):
-    ensure_exists(session, User, post_in.user_id)
-    post = Post.model_validate(post_in)
+    post = Post.model_validate(post_in, update={"user_id": current_user.id})
     session.add(post)
     session.commit()
     session.refresh(post)
@@ -53,7 +53,7 @@ def read_post(post: PostDep):
 
 
 @router.patch("/{post_id}", response_model=PostPublic)
-def update_post(post: PostDep, post_in: PostUpdate, session: SessionDep):
+def update_post(post: OwnPostDep, post_in: PostUpdate, session: SessionDep):
     post.sqlmodel_update(post_in.model_dump(exclude_unset=True))
     session.add(post)
     session.commit()
@@ -62,7 +62,7 @@ def update_post(post: PostDep, post_in: PostUpdate, session: SessionDep):
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_post(post: PostDep, session: SessionDep) -> None:
+def delete_post(post: OwnPostDep, session: SessionDep) -> None:
     session.delete(post)
     session.commit()
 

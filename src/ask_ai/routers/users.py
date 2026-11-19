@@ -4,7 +4,7 @@ from sqlmodel import Session, select
 
 from ask_ai.assistants import AssistantsDep
 from ask_ai.database import SessionDep
-from ask_ai.dependencies import PaginationDep, UserDep
+from ask_ai.dependencies import OwnUserDep, PaginationDep, UserDep
 from ask_ai.models import (
     Comment,
     CommentPublic,
@@ -15,6 +15,7 @@ from ask_ai.models import (
     UserPublic,
     UserUpdate,
 )
+from ask_ai.security import CurrentUserDep, hash_password
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -50,7 +51,15 @@ def list_users(session: SessionDep, pagination: PaginationDep):
 @router.post("", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
 def create_user(user_in: UserCreate, session: SessionDep, assistants: AssistantsDep):
     _reject_reserved_username(user_in.username, assistants)
-    return _commit_user(session, User.model_validate(user_in))
+    user = User.model_validate(
+        user_in, update={"hashed_password": hash_password(user_in.password)}
+    )
+    return _commit_user(session, user)
+
+
+@router.get("/me", response_model=UserPublic)
+def read_current_user(current_user: CurrentUserDep):
+    return current_user
 
 
 @router.get("/{user_id}", response_model=UserPublic)
@@ -60,15 +69,21 @@ def read_user(user: UserDep):
 
 @router.patch("/{user_id}", response_model=UserPublic)
 def update_user(
-    user: UserDep, user_in: UserUpdate, session: SessionDep, assistants: AssistantsDep
+    user: OwnUserDep,
+    user_in: UserUpdate,
+    session: SessionDep,
+    assistants: AssistantsDep,
 ):
     _reject_reserved_username(user_in.username, assistants)
-    user.sqlmodel_update(user_in.model_dump(exclude_unset=True))
+    data = user_in.model_dump(exclude_unset=True)
+    if password := data.pop("password", None):
+        data["hashed_password"] = hash_password(password)
+    user.sqlmodel_update(data)
     return _commit_user(session, user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user: UserDep, session: SessionDep) -> None:
+def delete_user(user: OwnUserDep, session: SessionDep) -> None:
     session.delete(user)
     session.commit()
 

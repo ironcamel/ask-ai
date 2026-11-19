@@ -2,10 +2,12 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
 
 from ask_ai.assistants import get_assistants
+from ask_ai.config import settings
 from ask_ai.database import get_engine
 from ask_ai.main import app
 
@@ -23,6 +25,15 @@ class FakeAssistant:
         if self.error:
             raise self.error
         return f"{self.name} says: {query}"
+
+
+@pytest.fixture(autouse=True)
+def jwt_secret_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        settings,
+        "jwt_secret_key",
+        SecretStr("test-secret-key-that-is-at-least-32-bytes"),
+    )
 
 
 @pytest.fixture

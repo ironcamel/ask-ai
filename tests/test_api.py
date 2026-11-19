@@ -1,98 +1,91 @@
 from fastapi.testclient import TestClient
 
-
-def create_user(client: TestClient, username: str = "alice") -> dict:
-    response = client.post(
-        "/users", json={"username": username, "email": f"{username}@example.com"}
-    )
-    assert response.status_code == 201, response.text
-    return response.json()
-
-
-def create_post(client: TestClient, user_id: int, body: str = "First post") -> dict:
-    response = client.post("/posts", json={"body": body, "user_id": user_id})
-    assert response.status_code == 201, response.text
-    return response.json()
-
-
-def create_comment(
-    client: TestClient, post_id: int, user_id: int, body: str = "Nice"
-) -> dict:
-    response = client.post(
-        "/comments", json={"body": body, "post_id": post_id, "user_id": user_id}
-    )
-    assert response.status_code == 201, response.text
-    return response.json()
+from tests.helpers import create_comment, create_post, login, sign_up
 
 
 def test_user_crud(client: TestClient):
-    user = create_user(client)
-    assert user["username"] == "alice"
+    alice = sign_up(client)
+    assert alice.user["username"] == "alice"
 
-    assert client.get(f"/users/{user['id']}").json() == user
-    assert client.get("/users").json() == [user]
+    assert client.get(f"/users/{alice.id}").json() == alice.user
+    assert client.get("/users").json() == [alice.user]
 
-    response = client.patch(f"/users/{user['id']}", json={"username": "alicia"})
+    response = client.patch(
+        f"/users/{alice.id}", json={"username": "alicia"}, headers=alice.headers
+    )
     assert response.status_code == 200
     assert response.json()["username"] == "alicia"
     assert response.json()["email"] == "alice@example.com"
 
-    assert client.delete(f"/users/{user['id']}").status_code == 204
-    assert client.get(f"/users/{user['id']}").status_code == 404
+    assert client.delete(f"/users/{alice.id}", headers=alice.headers).status_code == 204
+    assert client.get(f"/users/{alice.id}").status_code == 404
 
 
 def test_duplicate_user_conflicts(client: TestClient):
-    create_user(client, "alice")
-    bob = create_user(client, "bob")
+    sign_up(client, "alice")
+    bob = sign_up(client, "bob")
 
     response = client.post(
-        "/users", json={"username": "alice", "email": "other@example.com"}
+        "/users",
+        json={
+            "username": "alice",
+            "email": "other@example.com",
+            "password": "password123",
+        },
     )
     assert response.status_code == 409
 
-    response = client.patch(f"/users/{bob['id']}", json={"email": "alice@example.com"})
+    response = client.patch(
+        f"/users/{bob.id}", json={"email": "alice@example.com"}, headers=bob.headers
+    )
     assert response.status_code == 409
 
 
 def test_user_validation(client: TestClient):
-    response = client.post("/users", json={"username": "x", "email": "not-an-email"})
+    response = client.post(
+        "/users",
+        json={"username": "x", "email": "not-an-email", "password": "password123"},
+    )
     assert response.status_code == 422
 
 
 def test_user_has_many_posts(client: TestClient):
-    alice = create_user(client, "alice")
-    bob = create_user(client, "bob")
-    p1 = create_post(client, alice["id"], "One")
-    p2 = create_post(client, alice["id"], "Two")
-    p3 = create_post(client, bob["id"], "Three")
+    alice = sign_up(client, "alice")
+    bob = sign_up(client, "bob")
+    p1 = create_post(client, alice, "One")
+    p2 = create_post(client, alice, "Two")
+    p3 = create_post(client, bob, "Three")
 
-    assert client.get(f"/users/{alice['id']}/posts").json() == [p1, p2]
-    assert client.get(f"/users/{bob['id']}/posts").json() == [p3]
+    assert client.get(f"/users/{alice.id}/posts").json() == [p1, p2]
+    assert client.get(f"/users/{bob.id}/posts").json() == [p3]
     assert client.get("/posts").json() == [p1, p2, p3]
-    assert p1["user_id"] == alice["id"]
+    assert p1["user_id"] == alice.id
 
 
 def test_post_crud(client: TestClient):
-    user = create_user(client)
-    post = create_post(client, user["id"])
+    alice = sign_up(client)
+    post = create_post(client, alice)
 
     assert client.get(f"/posts/{post['id']}").json() == post
 
-    response = client.patch(f"/posts/{post['id']}", json={"body": "Updated"})
+    response = client.patch(
+        f"/posts/{post['id']}", json={"body": "Updated"}, headers=alice.headers
+    )
     assert response.json()["body"] == "Updated"
-    assert response.json()["user_id"] == user["id"]
+    assert response.json()["user_id"] == alice.id
 
-    assert client.delete(f"/posts/{post['id']}").status_code == 204
+    response = client.delete(f"/posts/{post['id']}", headers=alice.headers)
+    assert response.status_code == 204
     assert client.get(f"/posts/{post['id']}").status_code == 404
 
 
 def test_post_has_many_comments(client: TestClient):
-    user = create_user(client)
-    post = create_post(client, user["id"])
-    other = create_post(client, user["id"], "Other")
-    c1 = create_comment(client, post["id"], user["id"], "first")
-    c2 = create_comment(client, post["id"], user["id"], "second")
-    c3 = create_comment(client, other["id"], user["id"], "elsewhere")
+    alice = sign_up(client)
+    post = create_post(client, alice)
+    other = create_post(client, alice, "Other")
+    c1 = create_comment(client, alice, post["id"], "first")
+    c2 = create_comment(client, alice, post["id"], "second")
+    c3 = create_comment(client, alice, other["id"], "elsewhere")
 
     assert client.get(f"/posts/{post['id']}/comments").json() == [c1, c2]
     assert client.get(f"/posts/{other['id']}/comments").json() == [c3]
@@ -100,92 +93,113 @@ def test_post_has_many_comments(client: TestClient):
 
 
 def test_comment_crud(client: TestClient):
-    user = create_user(client)
-    post = create_post(client, user["id"])
-    comment = create_comment(client, post["id"], user["id"])
+    alice = sign_up(client)
+    post = create_post(client, alice)
+    comment = create_comment(client, alice, post["id"])
 
     assert client.get(f"/comments/{comment['id']}").json() == comment
 
-    response = client.patch(f"/comments/{comment['id']}", json={"body": "Edited"})
+    response = client.patch(
+        f"/comments/{comment['id']}", json={"body": "Edited"}, headers=alice.headers
+    )
     assert response.json()["body"] == "Edited"
 
-    assert client.delete(f"/comments/{comment['id']}").status_code == 204
+    response = client.delete(f"/comments/{comment['id']}", headers=alice.headers)
+    assert response.status_code == 204
     assert client.get(f"/comments/{comment['id']}").status_code == 404
 
 
 def test_deleting_user_cascades_to_posts_and_comments(client: TestClient):
-    user = create_user(client)
-    post = create_post(client, user["id"])
-    comment = create_comment(client, post["id"], user["id"])
+    alice = sign_up(client)
+    post = create_post(client, alice)
+    comment = create_comment(client, alice, post["id"])
 
-    assert client.delete(f"/users/{user['id']}").status_code == 204
+    assert client.delete(f"/users/{alice.id}", headers=alice.headers).status_code == 204
     assert client.get(f"/posts/{post['id']}").status_code == 404
     assert client.get(f"/comments/{comment['id']}").status_code == 404
 
 
 def test_pagination(client: TestClient):
-    users = [create_user(client, f"user{i}") for i in range(5)]
+    users = [sign_up(client, f"user{i}").user for i in range(5)]
 
     assert client.get("/users", params={"offset": 1, "limit": 2}).json() == users[1:3]
     assert client.get("/users", params={"limit": 0}).status_code == 422
 
 
 def test_comment_records_author(client: TestClient):
-    alice = create_user(client, "alice")
-    bob = create_user(client, "bob")
-    post = create_post(client, alice["id"])
-    by_bob = create_comment(client, post["id"], bob["id"], "from bob")
-    by_alice = create_comment(client, post["id"], alice["id"], "from alice")
+    alice = sign_up(client, "alice")
+    bob = sign_up(client, "bob")
+    post = create_post(client, alice)
+    by_bob = create_comment(client, bob, post["id"], "from bob")
+    by_alice = create_comment(client, alice, post["id"], "from alice")
 
-    assert by_bob["user_id"] == bob["id"]
-    assert client.get(f"/users/{bob['id']}/comments").json() == [by_bob]
-    assert client.get(f"/users/{alice['id']}/comments").json() == [by_alice]
+    assert by_bob["user_id"] == bob.id
+    assert client.get(f"/users/{bob.id}/comments").json() == [by_bob]
+    assert client.get(f"/users/{alice.id}/comments").json() == [by_alice]
 
     # The author can't be reassigned after the fact.
     response = client.patch(
-        f"/comments/{by_bob['id']}", json={"body": "edited", "user_id": alice["id"]}
+        f"/comments/{by_bob['id']}",
+        json={"body": "edited", "user_id": alice.id},
+        headers=bob.headers,
     )
-    assert response.json()["user_id"] == bob["id"]
+    assert response.json()["user_id"] == bob.id
 
 
-def test_post_requires_existing_author(client: TestClient):
-    response = client.post("/posts", json={"body": "y"})
-    assert response.status_code == 422
-
-    response = client.post("/posts", json={"body": "y", "user_id": 999})
-    assert response.status_code == 422
-    assert response.json()["detail"] == "User not found"
-
-
-def test_comment_requires_existing_post_and_author(client: TestClient):
-    user = create_user(client)
-    post = create_post(client, user["id"])
-
-    for missing in ("post_id", "user_id"):
-        body = {"body": "x", "post_id": post["id"], "user_id": user["id"]}
-        del body[missing]
-        assert client.post("/comments", json=body).status_code == 422
+def test_author_comes_from_token_not_body(client: TestClient):
+    alice = sign_up(client, "alice")
+    bob = sign_up(client, "bob")
 
     response = client.post(
-        "/comments", json={"body": "x", "post_id": 999, "user_id": user["id"]}
+        "/posts", json={"body": "hi", "user_id": bob.id}, headers=alice.headers
+    )
+    post = response.json()
+    assert post["user_id"] == alice.id
+
+    response = client.post(
+        "/comments",
+        json={"body": "hi", "post_id": post["id"], "user_id": bob.id},
+        headers=alice.headers,
+    )
+    assert response.json()["user_id"] == alice.id
+
+
+def test_comment_requires_existing_post(client: TestClient):
+    alice = sign_up(client)
+
+    response = client.post("/comments", json={"body": "x"}, headers=alice.headers)
+    assert response.status_code == 422
+
+    response = client.post(
+        "/comments", json={"body": "x", "post_id": 999}, headers=alice.headers
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "Post not found"
 
-    response = client.post(
-        "/comments", json={"body": "x", "post_id": post["id"], "user_id": 999}
-    )
-    assert response.status_code == 422
-    assert response.json()["detail"] == "User not found"
-
 
 def test_deleting_commenter_removes_their_comments(client: TestClient):
-    alice = create_user(client, "alice")
-    bob = create_user(client, "bob")
-    post = create_post(client, alice["id"])
-    by_alice = create_comment(client, post["id"], alice["id"])
-    by_bob = create_comment(client, post["id"], bob["id"])
+    alice = sign_up(client, "alice")
+    bob = sign_up(client, "bob")
+    post = create_post(client, alice)
+    by_alice = create_comment(client, alice, post["id"])
+    by_bob = create_comment(client, bob, post["id"])
 
-    assert client.delete(f"/users/{bob['id']}").status_code == 204
+    assert client.delete(f"/users/{bob.id}", headers=bob.headers).status_code == 204
     assert client.get(f"/posts/{post['id']}/comments").json() == [by_alice]
     assert client.get(f"/comments/{by_bob['id']}").status_code == 404
+
+
+def test_password_change(client: TestClient):
+    alice = sign_up(client)
+
+    response = client.patch(
+        f"/users/{alice.id}", json={"password": "a new password"}, headers=alice.headers
+    )
+    assert response.status_code == 200
+
+    assert login(client, "alice", "a new password")
+    response = client.post(
+        "/auth/token",
+        data={"username": "alice", "password": "correct horse battery staple"},
+    )
+    assert response.status_code == 401

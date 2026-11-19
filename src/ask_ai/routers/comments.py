@@ -2,15 +2,15 @@ from fastapi import APIRouter, status
 from sqlmodel import select
 
 from ask_ai.database import SessionDep
-from ask_ai.dependencies import CommentDep, PaginationDep, ensure_exists
+from ask_ai.dependencies import CommentDep, OwnCommentDep, PaginationDep, ensure_exists
 from ask_ai.models import (
     Comment,
     CommentCreate,
     CommentPublic,
     CommentUpdate,
     Post,
-    User,
 )
+from ask_ai.security import CurrentUserDep
 
 router = APIRouter(prefix="/comments", tags=["comments"])
 
@@ -26,10 +26,11 @@ def list_comments(session: SessionDep, pagination: PaginationDep):
 
 
 @router.post("", response_model=CommentPublic, status_code=status.HTTP_201_CREATED)
-def create_comment(comment_in: CommentCreate, session: SessionDep):
+def create_comment(
+    comment_in: CommentCreate, current_user: CurrentUserDep, session: SessionDep
+):
     ensure_exists(session, Post, comment_in.post_id)
-    ensure_exists(session, User, comment_in.user_id)
-    comment = Comment.model_validate(comment_in)
+    comment = Comment.model_validate(comment_in, update={"user_id": current_user.id})
     session.add(comment)
     session.commit()
     session.refresh(comment)
@@ -42,7 +43,9 @@ def read_comment(comment: CommentDep):
 
 
 @router.patch("/{comment_id}", response_model=CommentPublic)
-def update_comment(comment: CommentDep, comment_in: CommentUpdate, session: SessionDep):
+def update_comment(
+    comment: OwnCommentDep, comment_in: CommentUpdate, session: SessionDep
+):
     comment.sqlmodel_update(comment_in.model_dump(exclude_unset=True))
     session.add(comment)
     session.commit()
@@ -51,6 +54,6 @@ def update_comment(comment: CommentDep, comment_in: CommentUpdate, session: Sess
 
 
 @router.delete("/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_comment(comment: CommentDep, session: SessionDep) -> None:
+def delete_comment(comment: OwnCommentDep, session: SessionDep) -> None:
     session.delete(comment)
     session.commit()

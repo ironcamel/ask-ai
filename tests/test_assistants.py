@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from ask_ai.assistants import parse_mention
 from tests.conftest import FakeAssistant
-from tests.test_api import create_post, create_user
+from tests.helpers import create_post, sign_up
 
 NAMES = ["claude", "gemini"]
 
@@ -33,8 +33,8 @@ def test_parse_mention(body: str, expected: tuple[str, str] | None):
 def test_mention_posts_answer_as_comment(
     client: TestClient, assistants: dict[str, FakeAssistant], name: str
 ):
-    user = create_user(client)
-    post = create_post(client, user["id"], body=f"@{name} why is the sky blue?")
+    user = sign_up(client)
+    post = create_post(client, user, body=f"@{name} why is the sky blue?")
 
     assert assistants[name].queries == ["why is the sky blue?"]
     other = next(a for n, a in assistants.items() if n != name)
@@ -48,9 +48,9 @@ def test_mention_posts_answer_as_comment(
 
 
 def test_bot_user_is_reused(client: TestClient):
-    user = create_user(client)
-    first = create_post(client, user["id"], body="@claude one")
-    second = create_post(client, user["id"], body="@claude two")
+    user = sign_up(client)
+    first = create_post(client, user, body="@claude one")
+    second = create_post(client, user, body="@claude two")
 
     [c1] = client.get(f"/posts/{first['id']}/comments").json()
     [c2] = client.get(f"/posts/{second['id']}/comments").json()
@@ -61,8 +61,8 @@ def test_bot_user_is_reused(client: TestClient):
 def test_post_without_mention_gets_no_reply(
     client: TestClient, assistants: dict[str, FakeAssistant]
 ):
-    user = create_user(client)
-    post = create_post(client, user["id"], body="Just a regular post about @claude")
+    user = sign_up(client)
+    post = create_post(client, user, body="Just a regular post about @claude")
 
     assert client.get(f"/posts/{post['id']}/comments").json() == []
     assert all(a.queries == [] for a in assistants.values())
@@ -71,9 +71,12 @@ def test_post_without_mention_gets_no_reply(
 def test_updating_post_does_not_trigger_reply(
     client: TestClient, assistants: dict[str, FakeAssistant]
 ):
-    user = create_user(client)
-    post = create_post(client, user["id"])
-    client.patch(f"/posts/{post['id']}", json={"body": "@claude hello"})
+    user = sign_up(client)
+    post = create_post(client, user)
+    response = client.patch(
+        f"/posts/{post['id']}", json={"body": "@claude hello"}, headers=user.headers
+    )
+    assert response.status_code == 200
 
     assert assistants["claude"].queries == []
 
@@ -82,8 +85,8 @@ def test_llm_failure_still_creates_post(
     client: TestClient, assistants: dict[str, FakeAssistant]
 ):
     assistants["gemini"].error = RuntimeError("API is down")
-    user = create_user(client)
-    post = create_post(client, user["id"], body="@gemini hello")
+    user = sign_up(client)
+    post = create_post(client, user, body="@gemini hello")
 
     assert client.get(f"/posts/{post['id']}").status_code == 200
     assert client.get(f"/posts/{post['id']}/comments").json() == []
@@ -92,10 +95,13 @@ def test_llm_failure_still_creates_post(
 @pytest.mark.parametrize("name", NAMES)
 def test_assistant_usernames_are_reserved(client: TestClient, name: str):
     response = client.post(
-        "/users", json={"username": name, "email": "someone@example.com"}
+        "/users",
+        json={"username": name, "email": "x@example.com", "password": "password123"},
     )
     assert response.status_code == 422
 
-    user = create_user(client)
-    response = client.patch(f"/users/{user['id']}", json={"username": name})
+    user = sign_up(client)
+    response = client.patch(
+        f"/users/{user.id}", json={"username": name}, headers=user.headers
+    )
     assert response.status_code == 422

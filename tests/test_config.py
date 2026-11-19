@@ -41,3 +41,15 @@ def test_keys_default_to_unset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     assert settings.anthropic_api_key is None
     assert settings.gemini_api_key is None
+
+
+def test_empty_values_count_as_unset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    for name in ("ANTHROPIC_API_KEY", "JWT_SECRET_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("ANTHROPIC_API_KEY=\nJWT_SECRET_KEY=\n")
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.anthropic_api_key is None
+    assert settings.jwt_secret_key is None

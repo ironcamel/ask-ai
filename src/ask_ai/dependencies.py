@@ -6,6 +6,7 @@ from sqlmodel import Session, SQLModel
 
 from ask_ai.database import SessionDep
 from ask_ai.models import Comment, Post, User
+from ask_ai.security import CurrentUserDep
 
 
 class Pagination(BaseModel):
@@ -55,3 +56,31 @@ def get_comment(comment_id: Annotated[int, Path(ge=1)], session: SessionDep) -> 
 UserDep = Annotated[User, Depends(get_user)]
 PostDep = Annotated[Post, Depends(get_post)]
 CommentDep = Annotated[Comment, Depends(get_comment)]
+
+
+# Only the owner may change or delete a resource.
+
+
+def _ensure_owner(owner_id: int | None, current_user: User) -> None:
+    if owner_id != current_user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+
+
+def get_own_user(user: UserDep, current_user: CurrentUserDep) -> User:
+    _ensure_owner(user.id, current_user)
+    return user
+
+
+def get_own_post(post: PostDep, current_user: CurrentUserDep) -> Post:
+    _ensure_owner(post.user_id, current_user)
+    return post
+
+
+def get_own_comment(comment: CommentDep, current_user: CurrentUserDep) -> Comment:
+    _ensure_owner(comment.user_id, current_user)
+    return comment
+
+
+OwnUserDep = Annotated[User, Depends(get_own_user)]
+OwnPostDep = Annotated[Post, Depends(get_own_post)]
+OwnCommentDep = Annotated[Comment, Depends(get_own_comment)]
