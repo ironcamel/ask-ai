@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, status
 from sqlmodel import select
 
-from ask_ai.assistants import AssistantsDep, parse_mention, reply_to_post
+from ask_ai.assistants import AssistantsDep, schedule_reply
 from ask_ai.database import EngineDep, SessionDep
 from ask_ai.dependencies import OwnPostDep, PaginationDep, PostDep
 from ask_ai.models import (
@@ -37,13 +37,7 @@ def create_post(
     session.add(post)
     session.commit()
     session.refresh(post)
-    # A post starting with "@claude" or "@gemini" gets the LLM's answer as a
-    # comment. It arrives after the response, since LLM calls can be slow.
-    if mention := parse_mention(post.body, list(assistants)):
-        name, query = mention
-        background_tasks.add_task(
-            reply_to_post, engine, post.id, name, assistants[name], query
-        )
+    schedule_reply(background_tasks, engine, assistants, post.id, post.body)
     return post
 
 

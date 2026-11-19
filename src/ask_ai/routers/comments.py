@@ -1,7 +1,8 @@
-from fastapi import APIRouter, status
+from fastapi import APIRouter, BackgroundTasks, status
 from sqlmodel import select
 
-from ask_ai.database import SessionDep
+from ask_ai.assistants import AssistantsDep, schedule_reply
+from ask_ai.database import EngineDep, SessionDep
 from ask_ai.dependencies import CommentDep, OwnCommentDep, PaginationDep, ensure_exists
 from ask_ai.models import (
     Comment,
@@ -27,13 +28,19 @@ def list_comments(session: SessionDep, pagination: PaginationDep):
 
 @router.post("", response_model=CommentPublic, status_code=status.HTTP_201_CREATED)
 def create_comment(
-    comment_in: CommentCreate, current_user: CurrentUserDep, session: SessionDep
+    comment_in: CommentCreate,
+    current_user: CurrentUserDep,
+    session: SessionDep,
+    engine: EngineDep,
+    assistants: AssistantsDep,
+    background_tasks: BackgroundTasks,
 ):
     ensure_exists(session, Post, comment_in.post_id)
     comment = Comment.model_validate(comment_in, update={"user_id": current_user.id})
     session.add(comment)
     session.commit()
     session.refresh(comment)
+    schedule_reply(background_tasks, engine, assistants, comment.post_id, comment.body)
     return comment
 
 

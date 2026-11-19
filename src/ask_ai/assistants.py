@@ -1,10 +1,10 @@
-"""Reply to posts that mention an LLM assistant, e.g. "@claude what is ...?"."""
+"""Answer posts and comments that mention an LLM, e.g. "@claude what is ...?"."""
 
 import logging
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import BackgroundTasks, Depends
 from sqlalchemy import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -64,13 +64,32 @@ def _get_or_create_bot(session: Session, name: str) -> User:
     return bot
 
 
+def schedule_reply(
+    background_tasks: BackgroundTasks,
+    engine: Engine,
+    assistants: dict[str, Assistant],
+    post_id: int,
+    body: str,
+) -> None:
+    """If the body of a new post or comment mentions an assistant, answer it.
+
+    The answer is added as a comment on the post. It arrives after the response,
+    since LLM calls can be slow.
+    """
+    if mention := parse_mention(body, list(assistants)):
+        name, query = mention
+        background_tasks.add_task(
+            reply_to_post, engine, post_id, name, assistants[name], query
+        )
+
+
 def reply_to_post(
     engine: Engine, post_id: int, name: str, ask: Assistant, query: str
 ) -> None:
     """Ask the assistant the query and post its answer as a comment.
 
-    Runs as a background task after the post has been created, so it opens its
-    own session and logs failures rather than raising them.
+    Runs as a background task after the post or comment has been created, so it
+    opens its own session and logs failures rather than raising them.
     """
     try:
         answer = ask(query)

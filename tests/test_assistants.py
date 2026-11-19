@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from ask_ai.assistants import parse_mention
 from tests.conftest import FakeAssistant
-from tests.helpers import create_post, sign_up
+from tests.helpers import create_comment, create_post, sign_up
 
 NAMES = ["claude", "gemini"]
 
@@ -90,6 +90,63 @@ def test_llm_failure_still_creates_post(
 
     assert client.get(f"/posts/{post['id']}").status_code == 200
     assert client.get(f"/posts/{post['id']}/comments").json() == []
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_mention_in_comment_answers_on_same_post(
+    client: TestClient, assistants: dict[str, FakeAssistant], name: str
+):
+    alice = sign_up(client)
+    post = create_post(client, alice, "Water boils at 100C at sea level.")
+    other = create_post(client, alice, "Another post")
+    question = create_comment(client, alice, post["id"], f"@{name}, and on Everest?")
+
+    assert assistants[name].queries == ["and on Everest?"]
+    comments = client.get(f"/posts/{post['id']}/comments").json()
+    assert [c["body"] for c in comments] == [
+        question["body"],
+        f"{name} says: and on Everest?",
+    ]
+    assert client.get(f"/users/{comments[1]['user_id']}").json()["username"] == name
+    assert client.get(f"/posts/{other['id']}/comments").json() == []
+
+
+def test_comment_without_mention_gets_no_reply(
+    client: TestClient, assistants: dict[str, FakeAssistant]
+):
+    alice = sign_up(client)
+    post = create_post(client, alice)
+    create_comment(client, alice, post["id"], "Thanks @claude")
+
+    assert len(client.get(f"/posts/{post['id']}/comments").json()) == 1
+    assert all(a.queries == [] for a in assistants.values())
+
+
+def test_updating_comment_does_not_trigger_reply(
+    client: TestClient, assistants: dict[str, FakeAssistant]
+):
+    alice = sign_up(client)
+    post = create_post(client, alice)
+    comment = create_comment(client, alice, post["id"])
+    response = client.patch(
+        f"/comments/{comment['id']}",
+        json={"body": "@claude hello"},
+        headers=alice.headers,
+    )
+    assert response.status_code == 200
+
+    assert assistants["claude"].queries == []
+
+
+def test_llm_failure_still_creates_comment(
+    client: TestClient, assistants: dict[str, FakeAssistant]
+):
+    assistants["claude"].error = RuntimeError("API is down")
+    alice = sign_up(client)
+    post = create_post(client, alice)
+    comment = create_comment(client, alice, post["id"], "@claude hello")
+
+    assert client.get(f"/posts/{post['id']}/comments").json() == [comment]
 
 
 @pytest.mark.parametrize("name", NAMES)
