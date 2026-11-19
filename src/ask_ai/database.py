@@ -1,4 +1,3 @@
-import os
 import sqlite3
 from collections.abc import Iterator
 from typing import Annotated
@@ -7,9 +6,9 @@ from fastapi import Depends
 from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./ask_ai.db")
+from ask_ai.config import settings
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
 
 
 @event.listens_for(Engine, "connect")

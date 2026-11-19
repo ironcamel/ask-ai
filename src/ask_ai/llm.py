@@ -1,14 +1,12 @@
 """Clients for the LLMs that can be mentioned in a post."""
 
-import os
 from functools import cache
 
 import anthropic
 from google import genai
 from google.genai import types
 
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-5-5")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-4-carbon")
+from ask_ai.config import settings
 
 SYSTEM_PROMPT = (
     "You were mentioned in a post on a discussion forum. Your reply will be "
@@ -25,17 +23,19 @@ class LLMError(Exception):
 
 @cache
 def _anthropic_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic()
+    key = settings.anthropic_api_key
+    return anthropic.Anthropic(api_key=key.get_secret_value() if key else None)
 
 
 @cache
 def _gemini_client() -> genai.Client:
-    return genai.Client()
+    key = settings.gemini_api_key
+    return genai.Client(api_key=key.get_secret_value() if key else None)
 
 
 def ask_claude(query: str) -> str:
     response = _anthropic_client().beta.messages.create(
-        model=CLAUDE_MODEL,
+        model=settings.claude_model,
         max_tokens=16000,
         output_config={"effort": "medium"},
         # If a safety classifier declines, retry on a suitable fallback model.
@@ -54,7 +54,7 @@ def ask_claude(query: str) -> str:
 
 def ask_gemini(query: str) -> str:
     response = _gemini_client().models.generate_content(
-        model=GEMINI_MODEL,
+        model=settings.gemini_model,
         contents=query,
         config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
     )

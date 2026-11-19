@@ -11,3 +11,6 @@ wheels/
 
 # Local SQLite database
 *.db
+
+# Local config with secrets (copy .env.example to .env)
+.env
