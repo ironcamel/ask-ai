@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from ask_ai.assistants import parse_mention
+from ask_ai.assistants import find_mention
 from tests.conftest import FakeAssistant
 from tests.helpers import create_comment, create_post, sign_up
 
@@ -11,22 +11,28 @@ NAMES = ["claude", "gemini"]
 @pytest.mark.parametrize(
     ("body", "expected"),
     [
-        ("@claude what is 2+2?", ("claude", "what is 2+2?")),
-        ("@gemini\n  tell me a joke  ", ("gemini", "tell me a joke")),
-        ("@claude, what is 2+2?", ("claude", "what is 2+2?")),
-        ("@gemini,tell me a joke", ("gemini", "tell me a joke")),
-        ("@claude,", None),
-        ("@claude,  ", None),
+        ("@claude what is 2+2?", "claude"),
+        ("@claude, what is 2+2?", "claude"),
+        ("What is 2+2, @gemini?", "gemini"),
+        ("hey @claude\nwhat is 2+2", "claude"),
+        ("(@claude) what is 2+2", "claude"),
+        # Only the first mention counts.
+        ("@gemini and @claude, compare notes", "gemini"),
+        ("@claude what? @claude!", "claude"),
+        # Nothing but mentions and punctuation: no question to send.
         ("@claude", None),
-        ("@claude   ", None),
+        ("  @claude,  ", None),
+        ("@claude @gemini?", None),
+        # Not mentions.
         ("@claudette hi", None),
-        ("hey @claude hi", None),
+        ("mail bob@claude.example", None),
         ("@Claude hi", None),
+        ("claude hi", None),
         ("no mention", None),
     ],
 )
-def test_parse_mention(body: str, expected: tuple[str, str] | None):
-    assert parse_mention(body, NAMES) == expected
+def test_find_mention(body: str, expected: str | None):
+    assert find_mention(body, NAMES) == expected
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -36,12 +42,12 @@ def test_mention_posts_answer_as_comment(
     user = sign_up(client)
     post = create_post(client, user, body=f"@{name} why is the sky blue?")
 
-    assert assistants[name].queries == ["why is the sky blue?"]
+    assert assistants[name].queries == [f"@{name} why is the sky blue?"]
     other = next(a for n, a in assistants.items() if n != name)
     assert other.queries == []
 
     [comment] = client.get(f"/posts/{post['id']}/comments").json()
-    assert comment["body"] == f"{name} says: why is the sky blue?"
+    assert comment["body"] == f"{name} says: @{name} why is the sky blue?"
 
     bot = client.get(f"/users/{comment['user_id']}").json()
     assert bot["username"] == name
@@ -62,7 +68,7 @@ def test_post_without_mention_gets_no_reply(
     client: TestClient, assistants: dict[str, FakeAssistant]
 ):
     user = sign_up(client)
-    post = create_post(client, user, body="Just a regular post about @claude")
+    post = create_post(client, user, body="Email me at bob@claude.example")
 
     assert client.get(f"/posts/{post['id']}/comments").json() == []
     assert all(a.queries == [] for a in assistants.values())
@@ -99,13 +105,13 @@ def test_mention_in_comment_answers_on_same_post(
     alice = sign_up(client)
     post = create_post(client, alice, "Water boils at 100C at sea level.")
     other = create_post(client, alice, "Another post")
-    question = create_comment(client, alice, post["id"], f"@{name}, and on Everest?")
+    question = create_comment(client, alice, post["id"], f"And on Everest, @{name}?")
 
-    assert assistants[name].queries == ["and on Everest?"]
+    assert assistants[name].queries == [f"And on Everest, @{name}?"]
     comments = client.get(f"/posts/{post['id']}/comments").json()
     assert [c["body"] for c in comments] == [
         question["body"],
-        f"{name} says: and on Everest?",
+        f"{name} says: And on Everest, @{name}?",
     ]
     assert client.get(f"/users/{comments[1]['user_id']}").json()["username"] == name
     assert client.get(f"/posts/{other['id']}/comments").json() == []
@@ -116,7 +122,7 @@ def test_comment_without_mention_gets_no_reply(
 ):
     alice = sign_up(client)
     post = create_post(client, alice)
-    create_comment(client, alice, post["id"], "Thanks @claude")
+    create_comment(client, alice, post["id"], "@claudette thanks")
 
     assert len(client.get(f"/posts/{post['id']}/comments").json()) == 1
     assert all(a.queries == [] for a in assistants.values())
@@ -147,6 +153,30 @@ def test_llm_failure_still_creates_comment(
     comment = create_comment(client, alice, post["id"], "@claude hello")
 
     assert client.get(f"/posts/{post['id']}/comments").json() == [comment]
+
+
+def test_only_first_mentioned_assistant_answers(
+    client: TestClient, assistants: dict[str, FakeAssistant]
+):
+    question = "@gemini or @claude, which is bigger: 9 or 11?"
+    alice = sign_up(client)
+    post = create_post(client, alice, question)
+
+    assert assistants["gemini"].queries == [question]
+    assert assistants["claude"].queries == []
+    [comment] = client.get(f"/posts/{post['id']}/comments").json()
+    assert comment["body"] == f"gemini says: {question}"
+
+
+def test_mention_without_question_is_not_sent(
+    client: TestClient, assistants: dict[str, FakeAssistant]
+):
+    alice = sign_up(client)
+    post = create_post(client, alice, "@claude")
+    create_comment(client, alice, post["id"], "@gemini!")
+
+    assert all(a.queries == [] for a in assistants.values())
+    assert client.get(f"/posts/{post['id']}/comments").json()[0]["body"] == "@gemini!"
 
 
 @pytest.mark.parametrize("name", NAMES)

@@ -1,7 +1,9 @@
 """Answer posts and comments that mention an LLM, e.g. "@claude what is ...?"."""
 
 import logging
+import re
 from collections.abc import Callable
+from functools import reduce
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends
@@ -28,24 +30,21 @@ def get_assistants() -> dict[str, Assistant]:
 AssistantsDep = Annotated[dict[str, Assistant], Depends(get_assistants)]
 
 
-def parse_mention(body: str, names: list[str]) -> tuple[str, str] | None:
-    """Return (assistant name, query) if the body starts with "@<name> <query>".
+def find_mention(body: str, names: list[str]) -> str | None:
+    """Return the first assistant mentioned anywhere in the body.
 
-    A comma may follow the name, as in "@<name>, <query>".
+    "@claude" must stand alone: "@claudette" and "bob@claude.com" don't count.
+    A body with nothing but mentions in it has no question, so mentions nothing.
     """
-    for name in names:
-        prefix = f"@{name}"
-        if not body.startswith(prefix):
-            continue
-        rest = body.removeprefix(prefix)
-        if rest.startswith(","):
-            rest = rest.removeprefix(",")
-        # "@claudette" is not a mention of "@claude".
-        elif rest and not rest[0].isspace():
-            continue
-        query = rest.strip()
-        return (name, query) if query else None
-    return None
+    names_re = "|".join(names)
+    pattern = re.compile(rf"(?<!\w)@({names_re})\b")
+    match = pattern.search(body)
+    if not match:
+        return None
+    body = re.sub(names_re, "", body)
+    if not re.search(r"\w", body):
+        return None
+    return match.group(1)
 
 
 def _get_or_create_bot(session: Session, name: str) -> User:
@@ -71,15 +70,14 @@ def schedule_reply(
     post_id: int,
     body: str,
 ) -> None:
-    """If the body of a new post or comment mentions an assistant, answer it.
+    """Have the assistant mentioned in a new post or comment answer it.
 
-    The answer is added as a comment on the post. It arrives after the response,
-    since LLM calls can be slow.
+    The whole body is the query, and the answer is added as a comment on the
+    post. It arrives after the response, since LLM calls can be slow.
     """
-    if mention := parse_mention(body, list(assistants)):
-        name, query = mention
+    if name := find_mention(body, list(assistants)):
         background_tasks.add_task(
-            reply_to_post, engine, post_id, name, assistants[name], query
+            reply_to_post, engine, post_id, name, assistants[name], body.strip()
         )
 
 
