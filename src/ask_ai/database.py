@@ -8,7 +8,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from ask_ai.config import settings
 
-engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+db_url = settings.database_url
+connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
+engine = create_engine(db_url, connect_args=connect_args)
 
 
 @event.listens_for(Engine, "connect")
