@@ -1,0 +1,21 @@
+# Secrets come from the environment, never from the image.
+.env
+
+.git
+.gitignore
+.dockerignore
+Dockerfile
+compose.yaml
+.venv
+__pycache__/
+*.py[oc]
+.pytest_cache
+.ruff_cache
+.agents
+.claude
+tests
+
+# misc
+notes.txt
+*.diff
+*.vim

@@ -59,6 +59,23 @@ uv run fastapi dev
 The API is served at <http://127.0.0.1:8000>, with interactive docs at
 <http://127.0.0.1:8000/docs>. Use the **Authorize** button there to log in.
 
+### With Docker
+
+`compose.yaml` runs the app in a container with its own PostgreSQL. It reads
+settings from `.env`, except `DATABASE_URL`, which points at the compose
+database. The migrations run before the app starts.
+
+```sh
+docker compose up --build
+```
+
+The API is served at <http://127.0.0.1:8000>. The database is kept in the
+`db-data` volume; `docker compose down -v` deletes it.
+
+The `Dockerfile` builds the image used for deployment. The image serves the
+API by default, and `alembic upgrade head` as its command runs the migrations.
+It contains no secrets, so pass the settings as environment variables.
+
 ## Authentication
 
 Reading is public. Creating anything requires a login token, and only a

@@ -1,0 +1,45 @@
+# Runs the app with its own PostgreSQL, for local development and for trying the
+# image before deploying it. Settings come from .env; DATABASE_URL is set here
+# to point at the db service.
+
+x-app: &app
+  build: .
+  image: ask-ai
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DATABASE_URL: postgresql+psycopg://ask_ai:ask_ai@db/ask_ai
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ask_ai
+      POSTGRES_PASSWORD: ask_ai
+      POSTGRES_DB: ask_ai
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ask_ai", "-d", "ask_ai"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:
