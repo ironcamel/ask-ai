@@ -1,25 +1,13 @@
-import sqlite3
 from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import Engine, event
+from sqlalchemy import Engine
 from sqlmodel import Session, create_engine
 
 from ask_ai.config import settings
 
-db_url = settings.database_url
-connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
-engine = create_engine(db_url, connect_args=connect_args)
-
-
-@event.listens_for(Engine, "connect")
-def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
-    # SQLite ignores foreign keys (and ON DELETE CASCADE) unless enabled per connection.
-    if isinstance(dbapi_connection, sqlite3.Connection):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+engine = create_engine(settings.database_url)
 
 
 def get_engine() -> Engine:

@@ -3,13 +3,14 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import Engine, text
 from sqlmodel import SQLModel, create_engine
 
 from ask_ai.assistants import get_assistants
 from ask_ai.config import settings
 from ask_ai.database import get_engine
 from ask_ai.main import app
+from tests.helpers import temporary_database
 
 
 class FakeAssistant:
@@ -41,16 +42,25 @@ def assistants() -> dict[str, FakeAssistant]:
     return {"claude": FakeAssistant("claude"), "gemini": FakeAssistant("gemini")}
 
 
-@pytest.fixture
-def client(assistants: dict[str, FakeAssistant]) -> Iterator[TestClient]:
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    SQLModel.metadata.create_all(engine)
+@pytest.fixture(scope="session")
+def test_engine() -> Iterator[Engine]:
+    with temporary_database("test") as url:
+        engine = create_engine(url)
+        SQLModel.metadata.create_all(engine)
+        yield engine
+        engine.dispose()
 
-    app.dependency_overrides[get_engine] = lambda: engine
+
+@pytest.fixture
+def client(
+    test_engine: Engine, assistants: dict[str, FakeAssistant]
+) -> Iterator[TestClient]:
+    # Each test starts with empty tables, and ids counting from 1 again.
+    tables = ", ".join(f'"{t.name}"' for t in SQLModel.metadata.sorted_tables)
+    with test_engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY"))
+
+    app.dependency_overrides[get_engine] = lambda: test_engine
     app.dependency_overrides[get_assistants] = lambda: assistants
     yield TestClient(app)
     app.dependency_overrides.clear()

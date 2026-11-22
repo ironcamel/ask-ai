@@ -1,6 +1,12 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from fastapi.testclient import TestClient
+from sqlalchemy import URL, create_engine, make_url, text
+from sqlalchemy.pool import NullPool
+
+from ask_ai.config import settings
 
 PASSWORD = "correct horse battery staple"
 
@@ -52,3 +58,22 @@ def create_comment(
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+@contextmanager
+def temporary_database(suffix: str) -> Iterator[URL]:
+    """Create an empty database next to DATABASE_URL's, and drop it afterwards.
+
+    It's named after DATABASE_URL's database, e.g. "ask_ai_test" for "ask_ai".
+    """
+    url = make_url(settings.database_url)
+    name = f"{url.database}_{suffix}"
+    server = create_engine(url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
+    with server.connect() as connection:
+        connection.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+        connection.execute(text(f'CREATE DATABASE "{name}"'))
+    try:
+        yield url.set(database=name)
+    finally:
+        with server.connect() as connection:
+            connection.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))

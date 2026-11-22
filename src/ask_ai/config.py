@@ -13,7 +13,7 @@ class Settings(BaseSettings):
         env_file=".env", env_ignore_empty=True, extra="ignore"
     )
 
-    database_url: str = "sqlite:///./ask_ai.db"
+    database_url: str = "postgresql+psycopg://localhost/ask_ai"
 
     # When a key is unset, each SDK falls back to its own credential lookup.
     anthropic_api_key: SecretStr | None = None

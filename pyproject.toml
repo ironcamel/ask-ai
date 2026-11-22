@@ -38,9 +38,15 @@ entrypoint = "ask_ai.main:app"
 [tool.alembic]
 script_location = "%(here)s/migrations"
 
-# Format new migration scripts like the rest of the code.
+# Lint and format new migration scripts like the rest of the code.
 [[tool.alembic.post_write_hooks]]
-name = "ruff"
+name = "ruff_check"
+type = "module"
+module = "ruff"
+options = "check --fix REVISION_SCRIPT_FILENAME"
+
+[[tool.alembic.post_write_hooks]]
+name = "ruff_format"
 type = "module"
 module = "ruff"
 options = "format REVISION_SCRIPT_FILENAME"

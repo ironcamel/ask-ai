@@ -7,7 +7,7 @@ its answer is added as a comment on the same post, written by the assistant's bo
 account. The assistants currently available are `@claude` and `@gemini`.
 
 Built with [FastAPI](https://fastapi.tiangolo.com/) and
-[SQLModel](https://sqlmodel.tiangolo.com/), and runs on SQLite or PostgreSQL.
+[SQLModel](https://sqlmodel.tiangolo.com/), on PostgreSQL.
 
 ## How mentions work
 
@@ -24,7 +24,8 @@ Built with [FastAPI](https://fastapi.tiangolo.com/) and
 
 ## Setup
 
-Install [uv](https://docs.astral.sh/uv/), then create your local config file:
+Install [uv](https://docs.astral.sh/uv/) and [PostgreSQL](https://www.postgresql.org/),
+then create your local config file:
 
 ```sh
 cp .env.example .env
@@ -37,7 +38,7 @@ Fill in `.env`. It holds secrets and is ignored by git.
 | `JWT_SECRET_KEY` | Required. Signs login tokens. Generate one with `openssl rand -hex 32`. |
 | `ANTHROPIC_API_KEY` | API key for `@claude`, from the [Claude Console](https://console.anthropic.com/). |
 | `GEMINI_API_KEY` | API key for `@gemini`, from [Google AI Studio](https://aistudio.google.com/). |
-| `DATABASE_URL` | Defaults to `sqlite:///./ask_ai.db`. For PostgreSQL, use e.g. `postgresql+psycopg://user:password@localhost/ask_ai`. |
+| `DATABASE_URL` | The PostgreSQL database, e.g. `postgresql+psycopg://user:password@localhost/ask_ai`. Defaults to `postgresql+psycopg://localhost/ask_ai`. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | How long a login token lasts. Defaults to 30. |
 | `CLAUDE_MODEL`, `GEMINI_MODEL` | The models that answer mentions. |
 
@@ -111,8 +112,11 @@ Lists are paginated with `?offset=0&limit=100` (the limit is at most 100).
 uv run pytest
 ```
 
-The tests use an in-memory database and fake assistants, so they need no API
-keys and make no network calls.
+The tests use fake assistants, so they need no API keys and make no calls to
+the models. They do need PostgreSQL: they create throwaway databases on the
+server in `DATABASE_URL`, named after its database (`ask_ai_test` and
+`ask_ai_test_migrations` for `ask_ai`), and drop them when they finish. The
+`DATABASE_URL` user needs permission to create databases.
 
 ## Database migrations
 
@@ -133,12 +137,4 @@ uv run alembic revision --autogenerate -m "Describe the change"
 
 For data changes, such as adding users, create an empty migration with
 `uv run alembic revision -m "..."` and write the inserts yourself. See
-`migrations/versions/ce7e5d5988d6_add_assistant_bot_users.py` for an example.
-
-A database created before migrations were added already has the tables, so mark
-it as being at the first migration, then upgrade:
-
-```sh
-uv run alembic stamp 0bb83c773dd2
-uv run alembic upgrade head
-```
+`migrations/versions/ffe084b45081_add_assistant_bot_users.py` for an example.
