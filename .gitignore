@@ -15,5 +15,7 @@ wheels/
 # Local config with secrets (copy .env.example to .env)
 .env
 
-# Personal notes
+# misc
 notes.txt
+*.diff
+*.vim
