@@ -1,7 +1,7 @@
 [project]
 name = "ask-ai"
 version = "0.1.0"
-description = "Add your description here"
+description = "A discussion forum API where mentioning an AI assistant, such as @claude or @gemini, gets you its answer"
 readme = "README.md"
 authors = [
     { name = "Naveed Massjouni", email = "naveed@vt.edu" }
