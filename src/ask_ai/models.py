@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from pydantic import EmailStr
+from sqlalchemy import event
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -19,6 +20,9 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=_utcnow)
+    modified_at: datetime = Field(
+        default_factory=_utcnow, sa_column_kwargs={"onupdate": _utcnow}
+    )
     # None for accounts that can't log in, such as the assistant bots.
     hashed_password: str | None = None
 
@@ -39,6 +43,7 @@ class UserUpdate(SQLModel):
 class UserPublic(UserBase):
     id: int
     created_at: datetime
+    modified_at: datetime
 
 
 # Posts
@@ -51,6 +56,9 @@ class PostBase(SQLModel):
 class Post(PostBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=_utcnow)
+    modified_at: datetime = Field(
+        default_factory=_utcnow, sa_column_kwargs={"onupdate": _utcnow}
+    )
     user_id: int = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
 
     author: User = Relationship(back_populates="posts")
@@ -69,6 +77,7 @@ class PostPublic(PostBase):
     id: int
     user_id: int
     created_at: datetime
+    modified_at: datetime
 
 
 # Comments
@@ -81,6 +90,9 @@ class CommentBase(SQLModel):
 class Comment(CommentBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=_utcnow)
+    modified_at: datetime = Field(
+        default_factory=_utcnow, sa_column_kwargs={"onupdate": _utcnow}
+    )
     post_id: int = Field(foreign_key="post.id", ondelete="CASCADE", index=True)
     user_id: int = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
 
@@ -101,3 +113,13 @@ class CommentPublic(CommentBase):
     post_id: int
     user_id: int
     created_at: datetime
+    modified_at: datetime
+
+
+@event.listens_for(User, "before_insert")
+@event.listens_for(Post, "before_insert")
+@event.listens_for(Comment, "before_insert")
+def _start_unmodified(_mapper, _connection, target: User | Post | Comment) -> None:
+    # The two defaults are a moment apart, so make them equal: a row whose
+    # modified_at is its created_at has never been changed.
+    target.modified_at = target.created_at

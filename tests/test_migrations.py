@@ -5,13 +5,14 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from ask_ai.models import User
 
 ROOT = Path(__file__).parent.parent
 INITIAL_SCHEMA = "0bb83c773dd2"
+BOT_USERS = "ce7e5d5988d6"
 
 
 @pytest.fixture
@@ -64,9 +65,14 @@ def test_adds_assistant_bots(alembic_config: Config, engine: Engine):
 
 def test_skips_bots_that_already_exist(alembic_config: Config, engine: Engine):
     command.upgrade(alembic_config, INITIAL_SCHEMA)
-    with Session(engine) as session:
-        session.add(User(username="gemini", email="gemini@bots.example.com"))
-        session.commit()
+    # The User model has columns this revision doesn't, so insert with plain SQL.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO user (username, email, created_at)"
+                " VALUES ('gemini', 'gemini@bots.example.com', '2026-01-01')"
+            )
+        )
 
     command.upgrade(alembic_config, "head")
 
@@ -82,3 +88,14 @@ def test_downgrade_removes_only_the_bots(alembic_config: Config, engine: Engine)
     command.downgrade(alembic_config, INITIAL_SCHEMA)
 
     assert usernames(engine) == ["alice"]
+
+
+def test_backfills_modified_at(alembic_config: Config, engine: Engine):
+    command.upgrade(alembic_config, BOT_USERS)
+
+    command.upgrade(alembic_config, "head")
+
+    with Session(engine) as session:
+        bots = session.exec(select(User)).all()
+    assert bots
+    assert all(bot.modified_at == bot.created_at for bot in bots)

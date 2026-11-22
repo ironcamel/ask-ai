@@ -1,11 +1,20 @@
+from datetime import datetime
+
 from fastapi.testclient import TestClient
 
 from tests.helpers import create_comment, create_post, login, sign_up
 
 
+def assert_modified(before: dict, after: dict) -> None:
+    assert after["created_at"] == before["created_at"]
+    modified_at = datetime.fromisoformat(after["modified_at"])
+    assert modified_at > datetime.fromisoformat(before["modified_at"])
+
+
 def test_user_crud(client: TestClient):
     alice = sign_up(client)
     assert alice.user["username"] == "alice"
+    assert alice.user["modified_at"] == alice.user["created_at"]
 
     assert client.get(f"/users/{alice.id}").json() == alice.user
     assert client.get("/users").json() == [alice.user]
@@ -16,6 +25,7 @@ def test_user_crud(client: TestClient):
     assert response.status_code == 200
     assert response.json()["username"] == "alicia"
     assert response.json()["email"] == "alice@example.com"
+    assert_modified(alice.user, response.json())
 
     assert client.delete(f"/users/{alice.id}", headers=alice.headers).status_code == 204
     assert client.get(f"/users/{alice.id}").status_code == 404
@@ -65,6 +75,7 @@ def test_user_has_many_posts(client: TestClient):
 def test_post_crud(client: TestClient):
     alice = sign_up(client)
     post = create_post(client, alice)
+    assert post["modified_at"] == post["created_at"]
 
     assert client.get(f"/posts/{post['id']}").json() == post
 
@@ -73,6 +84,7 @@ def test_post_crud(client: TestClient):
     )
     assert response.json()["body"] == "Updated"
     assert response.json()["user_id"] == alice.id
+    assert_modified(post, response.json())
 
     response = client.delete(f"/posts/{post['id']}", headers=alice.headers)
     assert response.status_code == 204
@@ -96,6 +108,7 @@ def test_comment_crud(client: TestClient):
     alice = sign_up(client)
     post = create_post(client, alice)
     comment = create_comment(client, alice, post["id"])
+    assert comment["modified_at"] == comment["created_at"]
 
     assert client.get(f"/comments/{comment['id']}").json() == comment
 
@@ -103,6 +116,7 @@ def test_comment_crud(client: TestClient):
         f"/comments/{comment['id']}", json={"body": "Edited"}, headers=alice.headers
     )
     assert response.json()["body"] == "Edited"
+    assert_modified(comment, response.json())
 
     response = client.delete(f"/comments/{comment['id']}", headers=alice.headers)
     assert response.status_code == 204
