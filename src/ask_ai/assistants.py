@@ -3,7 +3,6 @@
 import logging
 import re
 from collections.abc import Callable
-from functools import reduce
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends
