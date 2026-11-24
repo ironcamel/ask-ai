@@ -1,0 +1,60 @@
+# Lints and tests every push and pull request. Pushes to main that pass are
+# deployed to ECS with scripts/deploy.sh, the same script used locally.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ask_ai
+          POSTGRES_PASSWORD: ask_ai
+          POSTGRES_DB: ask_ai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ask_ai -d ask_ai"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      # The tests create and drop their own databases on this server.
+      DATABASE_URL: postgresql+psycopg://ask_ai:ask_ai@localhost:5432/ask_ai
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run pytest
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Deploys run one at a time, in order; a new push waits for the current one.
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # lets the job sign in to AWS with OIDC, without stored keys
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::551522033132:role/github-actions-ask-ai-deploy
+          aws-region: us-east-1
+      - run: scripts/deploy.sh
