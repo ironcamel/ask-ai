@@ -149,7 +149,9 @@ def test_password_change_revokes_refresh_tokens(client: TestClient):
     token = refresh_token(refresh(client, token))
 
     response = client.patch(
-        url, json={"password": "a brand new password"}, headers=alice.headers
+        url,
+        json={"password": "a brand new password", "current_password": PASSWORD},
+        headers=alice.headers,
     )
     assert response.status_code == 200
     assert not can_refresh(client, token)

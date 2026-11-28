@@ -12,6 +12,7 @@ from ask_ai.models import (
     PostPublic,
     User,
     UserCreate,
+    UserPrivate,
     UserPublic,
     UserUpdate,
 )
@@ -19,6 +20,7 @@ from ask_ai.security import (
     CurrentUserDep,
     hash_password,
     revoke_user_refresh_tokens,
+    verify_password,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -52,7 +54,7 @@ def list_users(session: SessionDep, pagination: PaginationDep):
     ).all()
 
 
-@router.post("", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserPrivate, status_code=status.HTTP_201_CREATED)
 def create_user(user_in: UserCreate, session: SessionDep, assistants: AssistantsDep):
     _reject_reserved_username(user_in.username, assistants)
     user = User.model_validate(
@@ -61,7 +63,7 @@ def create_user(user_in: UserCreate, session: SessionDep, assistants: Assistants
     return _commit_user(session, user)
 
 
-@router.get("/me", response_model=UserPublic)
+@router.get("/me", response_model=UserPrivate)
 def read_current_user(current_user: CurrentUserDep):
     return current_user
 
@@ -71,7 +73,7 @@ def read_user(user: UserDep):
     return user
 
 
-@router.patch("/{user_id}", response_model=UserPublic)
+@router.patch("/{user_id}", response_model=UserPrivate)
 def update_user(
     user: OwnUserDep,
     user_in: UserUpdate,
@@ -80,6 +82,14 @@ def update_user(
 ):
     _reject_reserved_username(user_in.username, assistants)
     data = user_in.model_dump(exclude_unset=True)
+    current_password = data.pop("current_password", None)
+    if ("email" in data or "password" in data) and not verify_password(
+        user, current_password
+    ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Changing the email or password needs the current password",
+        )
     if password := data.pop("password", None):
         data["hashed_password"] = hash_password(password)
         # Log out everywhere, in case the old password was compromised.

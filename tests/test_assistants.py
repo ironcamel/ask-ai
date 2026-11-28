@@ -1,7 +1,13 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine
+from sqlmodel import Session, select
 
-from ask_ai.assistants import find_mention
+from ask_ai.assistants import LLM_THREADS, find_mention
+from ask_ai.config import settings
+from ask_ai.models import MAX_BODY_LENGTH, AssistantQuery
 from tests.conftest import FakeAssistant
 from tests.helpers import create_comment, create_post, sign_up
 
@@ -192,3 +198,91 @@ def test_assistant_usernames_are_reserved(client: TestClient, name: str):
         f"/users/{user.id}", json={"username": name}, headers=user.headers
     )
     assert response.status_code == 422
+
+
+def test_answer_can_be_longer_than_users_can_write(client: TestClient):
+    alice = sign_up(client)
+    question = "@claude " + "x" * (MAX_BODY_LENGTH - len("@claude "))
+    post = create_post(client, alice, question)
+
+    [comment] = client.get(f"/posts/{post['id']}/comments").json()
+    assert len(comment["body"]) > MAX_BODY_LENGTH
+
+
+def test_user_quota(
+    client: TestClient,
+    assistants: dict[str, FakeAssistant],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "assistant_queries_per_user_per_hour", 2)
+    alice = sign_up(client, "alice")
+    bob = sign_up(client, "bob")
+    post = create_post(client, alice, "@claude one")
+    create_comment(client, alice, post["id"], "@gemini two")
+
+    response = client.post(
+        "/posts", json={"body": "@claude three"}, headers=alice.headers
+    )
+    assert response.status_code == 429
+    response = client.post(
+        "/comments",
+        json={"post_id": post["id"], "body": "@claude three"},
+        headers=alice.headers,
+    )
+    assert response.status_code == 429
+    # Rejected questions aren't sent, or posted.
+    assert assistants["claude"].queries == ["@claude one"]
+    assert len(client.get("/posts").json()) == 1
+    assert len(client.get("/comments").json()) == 3  # Two questions, one answer.
+
+    # Alice can still write without asking, and Bob has his own quota.
+    create_post(client, alice, "no question")
+    create_post(client, bob, "@claude four")
+
+
+def test_overall_quota(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "assistant_queries_per_hour", 2)
+    create_post(client, sign_up(client, "alice"), "@claude one")
+    create_post(client, sign_up(client, "bob"), "@claude two")
+
+    carol = sign_up(client, "carol")
+    response = client.post(
+        "/posts", json={"body": "@claude three"}, headers=carol.headers
+    )
+    assert response.status_code == 429
+    assert response.json()["detail"] == (
+        "The assistants have answered too many questions this hour"
+    )
+
+
+def test_quota_counts_only_the_last_hour(
+    client: TestClient, test_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(settings, "assistant_queries_per_user_per_hour", 1)
+    alice = sign_up(client)
+    with Session(test_engine) as session:
+        old = datetime.now(UTC) - timedelta(hours=1, minutes=1)
+        session.add(AssistantQuery(user_id=alice.id, created_at=old))
+        session.commit()
+
+    create_post(client, alice, "@claude hello")
+
+    with Session(test_engine) as session:
+        [query] = session.exec(select(AssistantQuery)).all()
+    assert query.created_at > old  # The old one was cleared out.
+
+
+def test_answers_run_in_their_own_threads(
+    client: TestClient, assistants: dict[str, FakeAssistant]
+):
+    borrowed = []
+
+    def ask(query: str) -> str:
+        borrowed.append(LLM_THREADS.borrowed_tokens)
+        return "An answer"
+
+    assistants["claude"] = ask
+    create_post(client, sign_up(client), "@claude hello")
+
+    assert borrowed == [1]
+    assert LLM_THREADS.borrowed_tokens == 0
