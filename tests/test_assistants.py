@@ -185,7 +185,7 @@ def test_mention_without_question_is_not_sent(
     assert client.get(f"/posts/{post['id']}/comments").json()[0]["body"] == "@gemini!"
 
 
-@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("name", NAMES + [n.upper() for n in NAMES])
 def test_assistant_usernames_are_reserved(client: TestClient, name: str):
     response = client.post(
         "/users",

@@ -45,7 +45,8 @@ def _secret_key() -> str:
 
 
 def authenticate_user(session: Session, username: str, password: str) -> User | None:
-    user = session.exec(select(User).where(User.username == username)).first()
+    # Usernames are stored lowercase, so logging in ignores case.
+    user = session.exec(select(User).where(User.username == username.lower())).first()
     if user is None or user.hashed_password is None:
         password_hash.verify(password, DUMMY_HASH)
         return None

@@ -30,6 +30,12 @@ def test_login_returns_token_for_current_user(client: TestClient):
     assert me.json() == alice.user
 
 
+def test_login_ignores_username_case(client: TestClient):
+    alice = sign_up(client)
+    headers = login(client, "ALICE")
+    assert client.get("/users/me", headers=headers).json() == alice.user
+
+
 @pytest.mark.parametrize(
     ("username", "password"), [("alice", "wrong password"), ("nobody", PASSWORD)]
 )
