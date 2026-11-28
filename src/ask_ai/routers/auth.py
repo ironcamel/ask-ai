@@ -2,7 +2,15 @@ import logging
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    HTTPException,
+    Response,
+    status,
+)
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import select
 
@@ -15,7 +23,10 @@ from ask_ai.security import (
     authenticate_user,
     create_access_token,
     create_password_reset_token,
+    create_refresh_token,
     reset_password,
+    revoke_refresh_token,
+    rotate_refresh_token,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,10 +34,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+# The refresh token is kept in a cookie that page scripts can't read, which
+# browsers send only to the /auth endpoints, over HTTPS, from this site's own
+# pages. Browsers treat localhost as secure, so it works in development too.
+REFRESH_COOKIE = "refresh_token"
+REFRESH_COOKIE_PATH = "/auth"
+
+RefreshCookie = Annotated[str | None, Cookie(alias=REFRESH_COOKIE)]
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        REFRESH_COOKIE,
+        token,
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        path=REFRESH_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+
+
 @router.post("/token")
 def login(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    session: SessionDep,
+    response: Response,
 ) -> Token:
+    """Log in, and get an access token and a refresh token cookie."""
     user = authenticate_user(session, form_data.username, form_data.password)
     if user is None:
         raise HTTPException(
@@ -34,7 +69,45 @@ def login(
             "Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    _set_refresh_cookie(response, create_refresh_token(session, user))
     return create_access_token(user)
+
+
+@router.post("/refresh")
+def refresh(
+    session: SessionDep, response: Response, refresh_token: RefreshCookie = None
+) -> Token:
+    """Get a new access token with the refresh token cookie.
+
+    The cookie is replaced with a new refresh token, since each works once.
+    """
+    rotated = rotate_refresh_token(session, refresh_token) if refresh_token else None
+    if rotated is None:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid or expired refresh token"
+        )
+    user, new_refresh_token = rotated
+    _set_refresh_cookie(response, new_refresh_token)
+    return create_access_token(user)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(
+    session: SessionDep, response: Response, refresh_token: RefreshCookie = None
+) -> None:
+    """Revoke the refresh token cookie, and delete it.
+
+    Access tokens already issued still work until they expire.
+    """
+    if refresh_token:
+        revoke_refresh_token(session, refresh_token)
+    response.delete_cookie(
+        REFRESH_COOKIE,
+        path=REFRESH_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
 
 
 def _reset_email_body(user: User, token: str) -> str:

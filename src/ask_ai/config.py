@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # Signs login tokens. Generate one with: openssl rand -hex 32
     jwt_secret_key: SecretStr | None = None
     access_token_expire_minutes: int = 30
+    # How long a login lasts without being used. Each refresh restarts it.
+    refresh_token_expire_days: int = 14
 
     # Password reset emails. When SMTP_HOST is unset, they're logged instead of
     # sent, which is handy for local development.

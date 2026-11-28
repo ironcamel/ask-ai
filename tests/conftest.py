@@ -69,5 +69,7 @@ def client(
     app.dependency_overrides[get_engine] = lambda: test_engine
     app.dependency_overrides[get_assistants] = lambda: assistants
     app.dependency_overrides[get_mailer] = lambda: mailer
-    yield TestClient(app)
+    # HTTPS, since the client only sends Secure cookies, such as the refresh
+    # token, back over HTTPS.
+    yield TestClient(app, base_url="https://testserver")
     app.dependency_overrides.clear()

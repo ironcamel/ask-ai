@@ -15,7 +15,11 @@ from ask_ai.models import (
     UserPublic,
     UserUpdate,
 )
-from ask_ai.security import CurrentUserDep, hash_password
+from ask_ai.security import (
+    CurrentUserDep,
+    hash_password,
+    revoke_user_refresh_tokens,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -78,6 +82,8 @@ def update_user(
     data = user_in.model_dump(exclude_unset=True)
     if password := data.pop("password", None):
         data["hashed_password"] = hash_password(password)
+        # Log out everywhere, in case the old password was compromised.
+        revoke_user_refresh_tokens(session, user)
     user.sqlmodel_update(data)
     return _commit_user(session, user)
 
