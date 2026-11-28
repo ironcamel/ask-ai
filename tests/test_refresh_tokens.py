@@ -124,10 +124,7 @@ def test_logout_without_refresh_token(client: TestClient):
     assert client.post("/auth/logout").status_code == 204
 
 
-def test_password_reset_revokes_refresh_tokens(
-    client: TestClient, mailer: FakeMailer, monkeypatch: pytest.MonkeyPatch
-):
-    monkeypatch.setattr(settings, "password_reset_url", None)
+def test_password_reset_revokes_refresh_tokens(client: TestClient, mailer: FakeMailer):
     sign_up(client)
     token = refresh_token(log_in(client))
 

@@ -38,6 +38,13 @@ def jwt_secret_key(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def password_reset_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reset emails contain just the token, whatever a local .env says, unless
+    # a test sets a URL itself.
+    monkeypatch.setattr(settings, "password_reset_url", None)
+
+
 @pytest.fixture
 def assistants() -> dict[str, FakeAssistant]:
     return {"claude": FakeAssistant("claude"), "gemini": FakeAssistant("gemini")}
