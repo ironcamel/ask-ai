@@ -40,6 +40,11 @@ Fill in `.env`. It holds secrets and is ignored by git.
 | `GEMINI_API_KEY` | API key for `@gemini`, from [Google AI Studio](https://aistudio.google.com/). |
 | `DATABASE_URL` | The PostgreSQL database, e.g. `postgresql+psycopg://user:password@localhost/ask_ai`. Defaults to `postgresql+psycopg://localhost/ask_ai`. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | How long a login token lasts. Defaults to 30. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | The mail server that sends password reset emails. The port defaults to 587. When `SMTP_HOST` is unset, emails are logged instead of sent. |
+| `SMTP_STARTTLS` | Whether to switch the SMTP connection to TLS. Defaults to `true`; set it to `false` for a local test server such as [Mailpit](https://mailpit.axllent.org/). |
+| `EMAIL_FROM` | The sender of the emails, e.g. `ask-ai <noreply@example.com>`. |
+| `PASSWORD_RESET_URL` | The page where users choose a new password. The reset email links to it with `?token=...` added. When unset, the email contains just the token. |
+| `PASSWORD_RESET_TOKEN_EXPIRE_MINUTES` | How long a password reset token lasts. Defaults to 60. |
 | `CLAUDE_MODEL`, `GEMINI_MODEL` | The models that answer mentions. |
 
 Environment variables take precedence over `.env`.
@@ -96,11 +101,34 @@ curl -X POST localhost:8000/posts -H "Authorization: Bearer $TOKEN" \
 
 The usernames `claude` and `gemini` are reserved for the bot accounts.
 
+### Resetting a forgotten password
+
+Ask for a reset token, which is emailed to the account's address. The response
+is the same whether or not the address has an account.
+
+```sh
+curl -X POST localhost:8000/auth/password-reset -H 'Content-Type: application/json' \
+  -d '{"email": "alice@example.com"}'
+```
+
+Then set a new password with the token from the email:
+
+```sh
+curl -X POST localhost:8000/auth/password-reset/confirm -H 'Content-Type: application/json' \
+  -d '{"token": "...", "password": "new-password"}'
+```
+
+A token works once, and only until it expires. Asking again replaces any
+earlier token. Login tokens issued before the reset keep working until they
+expire.
+
 ## Endpoints
 
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/auth/token` | Log in and get a token |
+| `POST` | `/auth/password-reset` | Email a password reset token: `{"email": "..."}` |
+| `POST` | `/auth/password-reset/confirm` | Set a new password: `{"token": "...", "password": "..."}` |
 | `GET` | `/users` | List users |
 | `POST` | `/users` | Sign up |
 | `GET` | `/users/me` | The logged-in user |

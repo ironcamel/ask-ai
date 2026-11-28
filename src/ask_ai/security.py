@@ -1,5 +1,7 @@
-"""Password hashing and JWT access tokens."""
+"""Password hashing, JWT access tokens and password reset tokens."""
 
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -9,11 +11,11 @@ from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session, col, delete, select
 
 from ask_ai.config import settings
 from ask_ai.database import SessionDep
-from ask_ai.models import User
+from ask_ai.models import PasswordResetToken, User
 
 ALGORITHM = "HS256"
 
@@ -82,3 +84,55 @@ def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+# Password reset tokens are random strings rather than JWTs, so that they can
+# be used only once: each is a database row, deleted when it's used.
+
+
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def create_password_reset_token(session: Session, user: User) -> str:
+    """Return a new reset token for the user, replacing any earlier ones."""
+    now = datetime.now(UTC)
+    # Clear out the user's earlier tokens, and everyone's expired ones.
+    session.exec(
+        delete(PasswordResetToken).where(
+            (col(PasswordResetToken.user_id) == user.id)
+            | (col(PasswordResetToken.expires_at) <= now)
+        )
+    )
+    token = secrets.token_urlsafe(32)
+    expires = now + timedelta(minutes=settings.password_reset_token_expire_minutes)
+    session.add(
+        PasswordResetToken(
+            token_hash=_hash_reset_token(token), user_id=user.id, expires_at=expires
+        )
+    )
+    session.commit()
+    return token
+
+
+def reset_password(session: Session, token: str, password: str) -> User | None:
+    """Set a new password with a reset token, or return None if it's invalid."""
+    # Locked, so that two requests at once can't both use the token.
+    reset_token = session.exec(
+        select(PasswordResetToken)
+        .where(PasswordResetToken.token_hash == _hash_reset_token(token))
+        .with_for_update()
+    ).first()
+    if reset_token is None or reset_token.expires_at <= datetime.now(UTC):
+        return None
+    user = session.get(User, reset_token.user_id)
+    if user is None:
+        return None
+    user.hashed_password = hash_password(password)
+    session.add(user)
+    # The token is used up, and so is any other the user was sent.
+    session.exec(
+        delete(PasswordResetToken).where(col(PasswordResetToken.user_id) == user.id)
+    )
+    session.commit()
+    return user

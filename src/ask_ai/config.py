@@ -23,6 +23,20 @@ class Settings(BaseSettings):
     jwt_secret_key: SecretStr | None = None
     access_token_expire_minutes: int = 30
 
+    # Password reset emails. When SMTP_HOST is unset, they're logged instead of
+    # sent, which is handy for local development.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_starttls: bool = True
+    email_from: str = "ask-ai <noreply@localhost>"
+    # The page where users choose a new password, e.g.
+    # https://example.com/reset-password. The email links to it with
+    # ?token=... added. When unset, the email contains just the token.
+    password_reset_url: str | None = None
+    password_reset_token_expire_minutes: int = 60
+
     claude_model: str = "claude-opus-5-5"
     gemini_model: str = "gemini-4-carbon"
 
