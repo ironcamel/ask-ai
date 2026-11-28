@@ -1,8 +1,10 @@
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import create_comment, create_post, login, sign_up
+from ask_ai.models import MAX_BODY_LENGTH
+from tests.helpers import PASSWORD, create_comment, create_post, login, sign_up
 
 
 def assert_modified(before: dict, after: dict) -> None:
@@ -16,8 +18,9 @@ def test_user_crud(client: TestClient):
     assert alice.user["username"] == "alice"
     assert alice.user["modified_at"] == alice.user["created_at"]
 
-    assert client.get(f"/users/{alice.id}").json() == alice.user
-    assert client.get("/users").json() == [alice.user]
+    assert alice.user["email"] == "alice@example.com"
+    assert client.get(f"/users/{alice.id}").json() == alice.public
+    assert client.get("/users").json() == [alice.public]
 
     response = client.patch(
         f"/users/{alice.id}", json={"username": "alicia"}, headers=alice.headers
@@ -29,6 +32,18 @@ def test_user_crud(client: TestClient):
 
     assert client.delete(f"/users/{alice.id}", headers=alice.headers).status_code == 204
     assert client.get(f"/users/{alice.id}").status_code == 404
+
+
+def test_email_is_seen_only_by_its_owner(client: TestClient):
+    alice = sign_up(client, "alice")
+    bob = sign_up(client, "bob")
+
+    for headers in [{}, bob.headers, alice.headers]:
+        assert "email" not in client.get(f"/users/{alice.id}", headers=headers).json()
+        users = client.get("/users", headers=headers).json()
+        assert all("email" not in user for user in users)
+    me = client.get("/users/me", headers=alice.headers).json()
+    assert me["email"] == "alice@example.com"
 
 
 def test_duplicate_user_conflicts(client: TestClient):
@@ -46,7 +61,9 @@ def test_duplicate_user_conflicts(client: TestClient):
     assert response.status_code == 409
 
     response = client.patch(
-        f"/users/{bob.id}", json={"email": "alice@example.com"}, headers=bob.headers
+        f"/users/{bob.id}",
+        json={"email": "alice@example.com", "current_password": PASSWORD},
+        headers=bob.headers,
     )
     assert response.status_code == 409
 
@@ -133,8 +150,24 @@ def test_deleting_user_cascades_to_posts_and_comments(client: TestClient):
     assert client.get(f"/comments/{comment['id']}").status_code == 404
 
 
+def test_body_length_is_limited(client: TestClient):
+    alice = sign_up(client)
+    longest, too_long = "x" * MAX_BODY_LENGTH, "x" * (MAX_BODY_LENGTH + 1)
+    post = create_post(client, alice, longest)
+    comment = create_comment(client, alice, post["id"], longest)
+
+    for method, path, body in [
+        ("POST", "/posts", {"body": too_long}),
+        ("PATCH", f"/posts/{post['id']}", {"body": too_long}),
+        ("POST", "/comments", {"post_id": post["id"], "body": too_long}),
+        ("PATCH", f"/comments/{comment['id']}", {"body": too_long}),
+    ]:
+        response = client.request(method, path, json=body, headers=alice.headers)
+        assert response.status_code == 422, (method, path)
+
+
 def test_pagination(client: TestClient):
-    users = [sign_up(client, f"user{i}").user for i in range(5)]
+    users = [sign_up(client, f"user{i}").public for i in range(5)]
 
     assert client.get("/users", params={"offset": 1, "limit": 2}).json() == users[1:3]
     assert client.get("/users", params={"limit": 0}).status_code == 422
@@ -207,13 +240,31 @@ def test_password_change(client: TestClient):
     alice = sign_up(client)
 
     response = client.patch(
-        f"/users/{alice.id}", json={"password": "a new password"}, headers=alice.headers
+        f"/users/{alice.id}",
+        json={"password": "a new password", "current_password": PASSWORD},
+        headers=alice.headers,
     )
     assert response.status_code == 200
 
     assert login(client, "alice", "a new password")
     response = client.post(
-        "/auth/token",
-        data={"username": "alice", "password": "correct horse battery staple"},
+        "/auth/token", data={"username": "alice", "password": PASSWORD}
     )
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "change", [{"email": "mallory@example.com"}, {"password": "mallory's password"}]
+)
+@pytest.mark.parametrize("current_password", [None, "wrong password"])
+def test_email_and_password_changes_need_current_password(
+    client: TestClient, change: dict, current_password: str | None
+):
+    alice = sign_up(client)
+    body = change | ({"current_password": current_password} if current_password else {})
+
+    response = client.patch(f"/users/{alice.id}", json=body, headers=alice.headers)
+    assert response.status_code == 403
+    me = client.get("/users/me", headers=alice.headers).json()
+    assert me["email"] == "alice@example.com"
+    assert login(client, "alice", PASSWORD)

@@ -128,7 +128,7 @@ def test_only_owner_can_modify(client: TestClient):
         assert response.status_code == 403, (method, url)
 
     # Nothing was changed.
-    assert client.get(f"/users/{alice.id}").json() == alice.user
+    assert client.get(f"/users/{alice.id}").json() == alice.public
     assert client.get(f"/posts/{post['id']}").json() == post
     assert client.get(f"/comments/{comment['id']}").json() == comment
 

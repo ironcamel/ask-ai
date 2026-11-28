@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, status
 from sqlmodel import select
 
-from ask_ai.assistants import AssistantsDep, schedule_reply
+from ask_ai.assistants import AssistantsDep, check_mention, schedule_reply
 from ask_ai.database import EngineDep, SessionDep
 from ask_ai.dependencies import CommentDep, OwnCommentDep, PaginationDep, ensure_exists
 from ask_ai.models import (
@@ -36,11 +36,14 @@ def create_comment(
     background_tasks: BackgroundTasks,
 ):
     ensure_exists(session, Post, comment_in.post_id)
+    name = check_mention(session, assistants, current_user, comment_in.body)
     comment = Comment.model_validate(comment_in, update={"user_id": current_user.id})
     session.add(comment)
     session.commit()
     session.refresh(comment)
-    schedule_reply(background_tasks, engine, assistants, comment.post_id, comment.body)
+    schedule_reply(
+        background_tasks, engine, assistants, name, comment.post_id, comment.body
+    )
     return comment
 
 

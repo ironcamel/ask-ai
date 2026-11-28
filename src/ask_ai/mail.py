@@ -2,6 +2,7 @@
 
 import logging
 import smtplib
+import ssl
 from collections.abc import Callable
 from email.message import EmailMessage
 from typing import Annotated
@@ -29,7 +30,9 @@ def send_email(to: str, subject: str, body: str) -> None:
 
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
         if settings.smtp_starttls:
-            smtp.starttls()
+            # Without a context, starttls() doesn't check the server's
+            # certificate, so anyone in between could read the reset tokens.
+            smtp.starttls(context=ssl.create_default_context())
         if settings.smtp_username and settings.smtp_password:
             smtp.login(
                 settings.smtp_username, settings.smtp_password.get_secret_value()

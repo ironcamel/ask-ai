@@ -42,6 +42,11 @@ class Account:
     def id(self) -> int:
         return self.user["id"]
 
+    @property
+    def public(self) -> dict:
+        """The user as others see them, without the email address."""
+        return {k: v for k, v in self.user.items() if k != "email"}
+
 
 def login(client: TestClient, username: str, password: str = PASSWORD) -> dict:
     response = client.post(

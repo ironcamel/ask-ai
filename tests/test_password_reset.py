@@ -1,5 +1,7 @@
 import logging
 import re
+import ssl
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -73,7 +75,10 @@ def test_token_works_once(client: TestClient, mailer: FakeMailer):
     assert can_log_in(client, NEW_PASSWORD)
 
 
-def test_new_request_replaces_earlier_token(client: TestClient, mailer: FakeMailer):
+def test_new_request_replaces_earlier_token(
+    client: TestClient, mailer: FakeMailer, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(settings, "password_reset_email_interval_minutes", 0)
     sign_up(client)
     request_reset(client)
     first = emailed_token(mailer)
@@ -82,6 +87,28 @@ def test_new_request_replaces_earlier_token(client: TestClient, mailer: FakeMail
 
     assert confirm(client, first).status_code == 400
     assert confirm(client, second).status_code == 204
+
+
+def test_reset_emails_are_spaced_out(
+    client: TestClient, mailer: FakeMailer, test_engine: Engine
+):
+    sign_up(client)
+    request_reset(client)
+    token = emailed_token(mailer)
+    request_reset(client)  # Too soon: responds the same, but sends nothing.
+
+    assert len(mailer.sent) == 1
+    with Session(test_engine) as session:
+        row = session.exec(select(PasswordResetToken)).one()
+        row.created_at -= timedelta(
+            minutes=settings.password_reset_email_interval_minutes
+        )
+        session.add(row)
+        session.commit()
+
+    request_reset(client)
+    assert len(mailer.sent) == 2
+    assert confirm(client, token).status_code == 400  # Replaced by the new one.
 
 
 def test_expired_token_is_rejected(
@@ -161,3 +188,34 @@ def test_email_is_logged_without_smtp(
     assert "SMTP_HOST is not set" in caplog.text
     assert "To: alice@example.com" in caplog.text
     assert "The body" in caplog.text
+
+
+def test_smtp_verifies_the_server_certificate(monkeypatch: pytest.MonkeyPatch):
+    contexts: list[ssl.SSLContext] = []
+
+    class FakeSMTP:
+        def __init__(self, host: str, port: int, timeout: float):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            pass
+
+        def starttls(self, *, context: ssl.SSLContext | None = None):
+            contexts.append(context)
+
+        def send_message(self, message):
+            pass
+
+    monkeypatch.setattr("ask_ai.mail.smtplib.SMTP", FakeSMTP)
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_starttls", True)
+    monkeypatch.setattr(settings, "smtp_username", None)  # Whatever .env says.
+
+    send_email("alice@example.com", "Hello", "The body")
+
+    [context] = contexts
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname

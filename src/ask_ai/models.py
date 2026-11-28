@@ -9,6 +9,11 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+# The longest post or comment a user can write. The assistants' answers can be
+# longer, so the limit applies to what users send, not to the column.
+MAX_BODY_LENGTH = 10_000
+
+
 # Users
 
 
@@ -38,12 +43,24 @@ class UserUpdate(SQLModel):
     username: str | None = Field(default=None, min_length=1, max_length=50)
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
+    # Required to change the email or password, so that a stolen access token
+    # can't be used to take the account over.
+    current_password: str | None = None
 
 
-class UserPublic(UserBase):
+class UserPublic(SQLModel):
+    """A user as anyone can see them: without their email address."""
+
     id: int
+    username: str
     created_at: datetime
     modified_at: datetime
+
+
+class UserPrivate(UserPublic):
+    """A user as they see themselves."""
+
+    email: EmailStr
 
 
 # Password resets
@@ -86,6 +103,20 @@ class PasswordReset(SQLModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+# Assistant queries
+
+
+class AssistantQuery(SQLModel, table=True):
+    """A question a user asked an assistant, counted against the hourly quotas.
+
+    Kept for an hour, which is as far back as the quotas look.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
+
+
 # Posts
 
 
@@ -106,11 +137,11 @@ class Post(PostBase, table=True):
 
 
 class PostCreate(PostBase):
-    pass
+    body: str = Field(max_length=MAX_BODY_LENGTH)
 
 
 class PostUpdate(SQLModel):
-    body: str | None = None
+    body: str | None = Field(default=None, max_length=MAX_BODY_LENGTH)
 
 
 class PostPublic(PostBase):
@@ -141,11 +172,12 @@ class Comment(CommentBase, table=True):
 
 
 class CommentCreate(CommentBase):
+    body: str = Field(min_length=1, max_length=MAX_BODY_LENGTH)
     post_id: int = Field(ge=1)
 
 
 class CommentUpdate(SQLModel):
-    body: str | None = Field(default=None, min_length=1)
+    body: str | None = Field(default=None, min_length=1, max_length=MAX_BODY_LENGTH)
 
 
 class CommentPublic(CommentBase):

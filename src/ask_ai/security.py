@@ -54,6 +54,12 @@ def authenticate_user(session: Session, username: str, password: str) -> User | 
     return user
 
 
+def verify_password(user: User, password: str | None) -> bool:
+    if user.hashed_password is None or password is None:
+        return False
+    return password_hash.verify(password, user.hashed_password)
+
+
 def create_access_token(user: User) -> Token:
     minutes = settings.access_token_expire_minutes
     expire = datetime.now(UTC) + timedelta(minutes=minutes)
@@ -179,6 +185,19 @@ def revoke_user_refresh_tokens(session: Session, user: User) -> None:
 
 # Password reset tokens are random strings rather than JWTs too, so that they
 # can be used only once: each is a database row, deleted when it's used.
+
+
+def reset_recently_requested(session: Session, user: User) -> bool:
+    """Whether the user was sent a reset token too recently for another."""
+    minutes = settings.password_reset_email_interval_minutes
+    since = datetime.now(UTC) - timedelta(minutes=minutes)
+    recent = session.exec(
+        select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id,
+            col(PasswordResetToken.created_at) > since,
+        )
+    ).first()
+    return recent is not None
 
 
 def create_password_reset_token(session: Session, user: User) -> str:

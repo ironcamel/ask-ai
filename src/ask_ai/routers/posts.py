@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, status
 from sqlmodel import select
 
-from ask_ai.assistants import AssistantsDep, schedule_reply
+from ask_ai.assistants import AssistantsDep, check_mention, schedule_reply
 from ask_ai.database import EngineDep, SessionDep
 from ask_ai.dependencies import OwnPostDep, PaginationDep, PostDep
 from ask_ai.models import (
@@ -33,11 +33,12 @@ def create_post(
     assistants: AssistantsDep,
     background_tasks: BackgroundTasks,
 ):
+    name = check_mention(session, assistants, current_user, post_in.body)
     post = Post.model_validate(post_in, update={"user_id": current_user.id})
     session.add(post)
     session.commit()
     session.refresh(post)
-    schedule_reply(background_tasks, engine, assistants, post.id, post.body)
+    schedule_reply(background_tasks, engine, assistants, name, post.id, post.body)
     return post
 
 

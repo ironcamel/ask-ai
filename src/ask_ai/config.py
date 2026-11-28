@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     # ?token=... added. When unset, the email contains just the token.
     password_reset_url: str | None = None
     password_reset_token_expire_minutes: int = 60
+    # How long after a reset email another can be sent to the same account, so
+    # that asking over and over can't flood someone's inbox.
+    password_reset_email_interval_minutes: int = 5
+
+    # How many questions the assistants answer in an hour, for each user and
+    # for everyone together. They cap what the LLM APIs can cost.
+    assistant_queries_per_user_per_hour: int = 20
+    assistant_queries_per_hour: int = 200
 
     claude_model: str = "claude-opus-5-5"
     gemini_model: str = "gemini-4-carbon"

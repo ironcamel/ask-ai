@@ -25,6 +25,7 @@ from ask_ai.security import (
     create_password_reset_token,
     create_refresh_token,
     reset_password,
+    reset_recently_requested,
     revoke_refresh_token,
     rotate_refresh_token,
 )
@@ -144,11 +145,15 @@ def request_password_reset(
     """Email a password reset token to the account with this address.
 
     The response is the same whether or not there is such an account, so it
-    doesn't reveal which addresses have one.
+    doesn't reveal which addresses have one. It's also the same when no email
+    is sent because one was sent within PASSWORD_RESET_EMAIL_INTERVAL_MINUTES.
     """
     user = session.exec(select(User).where(User.email == request.email)).first()
     # Accounts without a password, such as the assistant bots, can't log in.
     if user is None or user.hashed_password is None:
+        return
+    # The token sent a moment ago still works.
+    if reset_recently_requested(session, user):
         return
     token = create_password_reset_token(session, user)
     body = _reset_email_body(user, token)
