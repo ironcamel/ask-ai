@@ -9,8 +9,9 @@ from sqlmodel import SQLModel, create_engine
 from ask_ai.assistants import get_assistants
 from ask_ai.config import settings
 from ask_ai.database import get_engine
+from ask_ai.mail import get_mailer
 from ask_ai.main import app
-from tests.helpers import temporary_database
+from tests.helpers import FakeMailer, temporary_database
 
 
 class FakeAssistant:
@@ -42,6 +43,11 @@ def assistants() -> dict[str, FakeAssistant]:
     return {"claude": FakeAssistant("claude"), "gemini": FakeAssistant("gemini")}
 
 
+@pytest.fixture
+def mailer() -> FakeMailer:
+    return FakeMailer()
+
+
 @pytest.fixture(scope="session")
 def test_engine() -> Iterator[Engine]:
     with temporary_database("test") as url:
@@ -53,7 +59,7 @@ def test_engine() -> Iterator[Engine]:
 
 @pytest.fixture
 def client(
-    test_engine: Engine, assistants: dict[str, FakeAssistant]
+    test_engine: Engine, assistants: dict[str, FakeAssistant], mailer: FakeMailer
 ) -> Iterator[TestClient]:
     # Each test starts with empty tables, and ids counting from 1 again.
     tables = ", ".join(f'"{t.name}"' for t in SQLModel.metadata.sorted_tables)
@@ -62,5 +68,6 @@ def client(
 
     app.dependency_overrides[get_engine] = lambda: test_engine
     app.dependency_overrides[get_assistants] = lambda: assistants
+    app.dependency_overrides[get_mailer] = lambda: mailer
     yield TestClient(app)
     app.dependency_overrides.clear()

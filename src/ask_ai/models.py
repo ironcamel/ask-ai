@@ -46,6 +46,28 @@ class UserPublic(UserBase):
     modified_at: datetime
 
 
+# Password resets
+
+
+class PasswordResetToken(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    # A SHA-256 hash of the token. The token itself is only in the email, so a
+    # leaked database can't be used to reset passwords.
+    token_hash: str = Field(index=True, unique=True)
+    user_id: int = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: datetime
+
+
+class PasswordResetRequest(SQLModel):
+    email: EmailStr
+
+
+class PasswordReset(SQLModel):
+    token: str
+    password: str = Field(min_length=8, max_length=128)
+
+
 # Posts
 
 

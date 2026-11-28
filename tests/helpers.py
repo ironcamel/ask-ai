@@ -12,6 +12,26 @@ PASSWORD = "correct horse battery staple"
 
 
 @dataclass
+class Email:
+    to: str
+    subject: str
+    body: str
+
+
+class FakeMailer:
+    """Stands in for SMTP: records the emails instead of sending them."""
+
+    def __init__(self):
+        self.sent: list[Email] = []
+        self.error: Exception | None = None
+
+    def __call__(self, to: str, subject: str, body: str) -> None:
+        if self.error:
+            raise self.error
+        self.sent.append(Email(to, subject, body))
+
+
+@dataclass
 class Account:
     """A signed-up user and the headers that authenticate as them."""
 
