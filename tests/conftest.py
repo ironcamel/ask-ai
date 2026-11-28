@@ -38,6 +38,13 @@ def jwt_secret_key(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def password_reset_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reset emails contain just the token, whatever a local .env says, unless
+    # a test sets a URL itself.
+    monkeypatch.setattr(settings, "password_reset_url", None)
+
+
 @pytest.fixture
 def assistants() -> dict[str, FakeAssistant]:
     return {"claude": FakeAssistant("claude"), "gemini": FakeAssistant("gemini")}
@@ -69,5 +76,7 @@ def client(
     app.dependency_overrides[get_engine] = lambda: test_engine
     app.dependency_overrides[get_assistants] = lambda: assistants
     app.dependency_overrides[get_mailer] = lambda: mailer
-    yield TestClient(app)
+    # HTTPS, since the client only sends Secure cookies, such as the refresh
+    # token, back over HTTPS.
+    yield TestClient(app, base_url="https://testserver")
     app.dependency_overrides.clear()

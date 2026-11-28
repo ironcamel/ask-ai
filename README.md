@@ -39,7 +39,8 @@ Fill in `.env`. It holds secrets and is ignored by git.
 | `ANTHROPIC_API_KEY` | API key for `@claude`, from the [Claude Console](https://console.anthropic.com/). |
 | `GEMINI_API_KEY` | API key for `@gemini`, from [Google AI Studio](https://aistudio.google.com/). |
 | `DATABASE_URL` | The PostgreSQL database, e.g. `postgresql+psycopg://user:password@localhost/ask_ai`. Defaults to `postgresql+psycopg://localhost/ask_ai`. |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | How long a login token lasts. Defaults to 30. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | How long an access token lasts. Defaults to 30. |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | How long a login lasts unused, before you have to log in again. Each refresh restarts it. Defaults to 14. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | The mail server that sends password reset emails. The port defaults to 587. When `SMTP_HOST` is unset, emails are logged instead of sent. |
 | `SMTP_STARTTLS` | Whether to switch the SMTP connection to TLS. Defaults to `true`; set it to `false` for a local test server such as [Mailpit](https://mailpit.axllent.org/). |
 | `EMAIL_FROM` | The sender of the emails, e.g. `ask-ai <noreply@example.com>`. |
@@ -83,7 +84,7 @@ It contains no secrets, so pass the settings as environment variables.
 
 ## Authentication
 
-Reading is public. Creating anything requires a login token, and only a
+Reading is public. Creating anything requires an access token, and only a
 resource's author can change or delete it.
 
 ```sh
@@ -91,8 +92,9 @@ resource's author can change or delete it.
 curl -X POST localhost:8000/users -H 'Content-Type: application/json' \
   -d '{"username": "alice", "email": "alice@example.com", "password": "correct-horse"}'
 
-# Log in to get a token
-curl -X POST localhost:8000/auth/token -d 'username=alice&password=correct-horse'
+# Log in to get an access token, and a refresh token cookie
+curl -X POST localhost:8000/auth/token -c cookies.txt \
+  -d 'username=alice&password=correct-horse'
 
 # Ask a question
 curl -X POST localhost:8000/posts -H "Authorization: Bearer $TOKEN" \
@@ -100,6 +102,35 @@ curl -X POST localhost:8000/posts -H "Authorization: Bearer $TOKEN" \
 ```
 
 The usernames `claude` and `gemini` are reserved for the bot accounts.
+
+### Staying logged in
+
+An access token lasts only `ACCESS_TOKEN_EXPIRE_MINUTES`, but logging in also
+sets a `refresh_token` cookie, which gets a new access token without the
+password:
+
+```sh
+curl -X POST localhost:8000/auth/refresh -b cookies.txt -c cookies.txt
+```
+
+The response is the same as a login's, and its `expires_in` says how many
+seconds the access token lasts. A refresh token works once, so each refresh
+replaces the cookie with a new one. If a used refresh token is sent again,
+someone has a copy of it, so that login ends and has to be made again.
+
+The cookie is `HttpOnly`, so page scripts can't read it, and `Secure` and
+`SameSite=Strict`, so browsers send it only over HTTPS (or to localhost) and
+only from this site's own pages. Its path is `/auth`, so it isn't sent with
+other requests.
+
+Log out to end the login:
+
+```sh
+curl -X POST localhost:8000/auth/logout -b cookies.txt -c cookies.txt
+```
+
+Changing or resetting your password ends all your logins. Access tokens
+already issued keep working until they expire.
 
 ### Resetting a forgotten password
 
@@ -119,14 +150,16 @@ curl -X POST localhost:8000/auth/password-reset/confirm -H 'Content-Type: applic
 ```
 
 A token works once, and only until it expires. Asking again replaces any
-earlier token. Login tokens issued before the reset keep working until they
-expire.
+earlier token. The reset ends all your logins, but access tokens issued before
+it keep working until they expire.
 
 ## Endpoints
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/auth/token` | Log in and get a token |
+| `POST` | `/auth/token` | Log in and get an access token and a refresh token cookie |
+| `POST` | `/auth/refresh` | Get a new access token with the refresh token cookie |
+| `POST` | `/auth/logout` | End the refresh token cookie's login |
 | `POST` | `/auth/password-reset` | Email a password reset token: `{"email": "..."}` |
 | `POST` | `/auth/password-reset/confirm` | Set a new password: `{"token": "...", "password": "..."}` |
 | `GET` | `/users` | List users |

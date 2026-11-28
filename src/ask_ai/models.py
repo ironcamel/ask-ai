@@ -59,6 +59,24 @@ class PasswordResetToken(SQLModel, table=True):
     expires_at: datetime
 
 
+# Refresh tokens
+
+
+class RefreshToken(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    # A SHA-256 hash of the token, like PasswordResetToken's.
+    token_hash: str = Field(index=True, unique=True)
+    # The tokens descended from one login. Each refresh uses up a token and
+    # adds its replacement to the family.
+    family_id: str = Field(index=True)
+    user_id: int = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: datetime
+    # Set when the token is used. Used tokens are kept until they expire, so
+    # that one used again, which means it was stolen, can be recognized.
+    used_at: datetime | None = None
+
+
 class PasswordResetRequest(SQLModel):
     email: EmailStr
 
