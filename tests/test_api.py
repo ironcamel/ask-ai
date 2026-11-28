@@ -4,7 +4,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ask_ai.models import MAX_BODY_LENGTH
-from tests.helpers import PASSWORD, create_comment, create_post, login, sign_up
+from tests.helpers import (
+    PASSWORD,
+    Account,
+    create_comment,
+    create_post,
+    login,
+    sign_up,
+)
 
 
 def assert_modified(before: dict, after: dict) -> None:
@@ -72,6 +79,53 @@ def test_user_validation(client: TestClient):
     response = client.post(
         "/users",
         json={"username": "x", "email": "not-an-email", "password": "password123"},
+    )
+    assert response.status_code == 422
+
+
+def test_username_is_lowercased(client: TestClient):
+    response = client.post(
+        "/users",
+        json={
+            "username": "Alice_42",
+            "email": "alice@example.com",
+            "password": PASSWORD,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["username"] == "alice_42"
+    alice = Account(response.json(), login(client, "alice_42"))
+
+    response = client.patch(
+        f"/users/{alice.id}", json={"username": "ALICIA"}, headers=alice.headers
+    )
+    assert response.status_code == 200
+    assert response.json()["username"] == "alicia"
+
+
+def test_usernames_differing_in_case_conflict(client: TestClient):
+    sign_up(client, "alice")
+    response = client.post(
+        "/users",
+        json={"username": "ALICE", "email": "x@example.com", "password": PASSWORD},
+    )
+    assert response.status_code == 409
+
+
+# "K" is the Kelvin sign, which lowercases to an ASCII "k".
+@pytest.mark.parametrize(
+    "username", ["", "al ice", "al-ice", "al.ice", "zoë", "名前", "Kate", "x" * 51]
+)
+def test_username_must_be_ascii_word_characters(client: TestClient, username: str):
+    response = client.post(
+        "/users",
+        json={"username": username, "email": "x@example.com", "password": PASSWORD},
+    )
+    assert response.status_code == 422
+
+    bob = sign_up(client, "bob")
+    response = client.patch(
+        f"/users/{bob.id}", json={"username": username}, headers=bob.headers
     )
     assert response.status_code == 422
 

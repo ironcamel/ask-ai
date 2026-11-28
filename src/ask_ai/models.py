@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
+from typing import Annotated
 
-from pydantic import EmailStr
+from pydantic import AfterValidator, EmailStr, StringConstraints
 from sqlalchemy import event
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -15,6 +16,17 @@ MAX_BODY_LENGTH = 10_000
 
 
 # Users
+
+
+# A username chosen by a user: ASCII word characters, stored lowercase. The
+# pattern is spelled out because \w would also match non-ASCII letters, and it
+# is checked before lowercasing, which can turn some of those (such as the
+# Kelvin sign) into ASCII ones.
+Username = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=50, pattern=r"^[A-Za-z0-9_]+$"),
+    AfterValidator(str.lower),
+]
 
 
 class UserBase(SQLModel):
@@ -36,11 +48,12 @@ class User(UserBase, table=True):
 
 
 class UserCreate(UserBase):
+    username: Username
     password: str = Field(min_length=8, max_length=128)
 
 
 class UserUpdate(SQLModel):
-    username: str | None = Field(default=None, min_length=1, max_length=50)
+    username: Username | None = None
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
     # Required to change the email or password, so that a stolen access token
